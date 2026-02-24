@@ -1,0 +1,32 @@
+# Environment
+.env
+
+# Downloads and outputs
+downloads/
+*.pdf
+*.txt
+!requirements.txt
+
+# Database
+*.db
+
+# Logs
+*.log
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Processing manifest
+processing_manifest.json
+
+# Exports (Notebook 04)
+exports/
+
+# OS
+.DS_Store
+Thumbs.db

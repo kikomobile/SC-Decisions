@@ -1,0 +1,20 @@
+# Scraping
+requests
+beautifulsoup4
+python-dotenv
+
+# PDF processing & OCR
+PyMuPDF
+pdf2image
+pytesseract
+Pillow
+reportlab
+
+# PDF text extraction (Notebook 04)
+pdfplumber
+
+# Progress bars
+tqdm
+
+# Jupyter
+notebook
