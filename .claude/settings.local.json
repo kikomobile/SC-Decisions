@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ide__executeCode",
+      "Bash(cd:*)",
+      "Bash(cd C:\\\\Users\\\\Gamers\\\\GitHub\\\\SC-Decisions:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}
