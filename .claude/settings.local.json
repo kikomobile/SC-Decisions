@@ -4,7 +4,9 @@
       "mcp__ide__executeCode",
       "Bash(cd:*)",
       "Bash(cd C:\\\\Users\\\\Gamers\\\\GitHub\\\\SC-Decisions:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)"
     ]
   }
 }

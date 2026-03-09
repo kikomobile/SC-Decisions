@@ -2,6 +2,41 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workflow: Architect + Worker
+
+**Claude Code = Architect.** **Cline (DeepSeek-chat API) = Worker.**
+
+### Claude Code's role (this agent)
+- **Plan** features, fixes, and refactors — produce clear, scoped instructions
+- **Review** code written by Cline — check correctness, style, edge cases
+- **Research** the codebase — find patterns, trace data flow, diagnose bugs
+- **Never write code directly** unless it's a trivial one-line fix or the user explicitly asks. Default to producing instructions for Cline instead.
+
+### How to produce Cline instructions
+When the user asks for a change, output a clear task description the user can paste into Cline's chat. Format:
+
+```
+[Task]: <concise title>
+[Files]: <exact file paths to create/modify>
+[Context]: <why this change is needed>
+[Instructions]:
+1. <step-by-step instructions referencing specific files and line numbers>
+2. ...
+[Constraints]: <what NOT to change, edge cases to handle>
+```
+
+Guidelines for instructions:
+- Reference exact file paths and line numbers/ranges
+- Include the "why" so Cline (DeepSeek) has context for trade-off decisions
+- Specify expected behavior and edge cases
+- Keep each instruction focused on one logical change — split large tasks into sequential steps
+
+### Review workflow
+After Cline applies changes:
+1. Read the modified files to verify correctness
+2. Flag issues or request follow-up changes as new Cline instructions
+3. Confirm completion to the user when satisfied
+
 ## Project Overview
 
 Pipeline to scrape, process (OCR), parse, and store Philippine Supreme Court decisions from the judiciary e-library into a structured SQLite database. Processes 860+ PDF volumes containing 24,000+ cases.
@@ -50,3 +85,89 @@ Key env vars: `DOWNLOAD_PATH`, `DB_PATH`, `PDF_FOLDER`, `MANIFEST_PATH`, `JSON_E
 | `processing.log` | Notebook 02 | OCR/extraction progress |
 | `processing_manifest.json` | Notebook 02 | Per-file status tracking with page-level checkpoints |
 | `parse.log` | Notebook 04 | Case parsing and DB operations |
+
+---
+
+## Annotation GUI Tool (`regex_improve/gui/`)
+
+### Purpose
+
+Tkinter-based GUI for manually annotating Philippine Supreme Court cases in OCR-extracted volume text files. Creates method-agnostic ground truth annotations for evaluating any extraction approach (regex, NLP, LLM). Replaces the CLI `annotate_tool.py`.
+
+### File Structure
+
+```
+regex_improve/
+├── annotate_gui.py              # Entry point: python annotate_gui.py
+├── gui/
+│   ├── __init__.py
+│   ├── constants.py             # Label defs, colors, keyboard shortcuts, config
+│   ├── models.py                # Annotation, Case, VolumeData, AnnotationStore
+│   ├── volume_loader.py         # Load .txt, build page/line/char index maps
+│   ├── app.py                   # Main Tk window, menu bar, panel layout
+│   ├── text_panel.py            # Scrollable Text widget + Canvas line number gutter
+│   ├── side_panel.py            # Case navigator, annotation list, label buttons
+│   ├── highlight_manager.py     # Tag creation/removal, color coding
+│   ├── dialogs.py               # Consolidated case prompts, party linking
+│   ├── file_io.py               # Load/save annotations.json, auto-save
+│   ├── status_bar.py            # Bottom status bar
+│   ├── exporters.py             # BaseExporter + JsonExporter + MarkdownExporter
+│   └── evaluation.py            # ExtractionMethod protocol + RegexMethod + runner
+├── improved_regex.py            # (existing) Pluggable regex patterns
+├── annotate_tool.py             # (existing) CLI tool — being replaced
+├── annotations.json             # (existing/shared) Annotation data store
+└── samples/                     # (existing) Volume_NNN.txt files
+```
+
+### Architecture Decisions
+
+1. **70k-line Text performance**: Load full text via single `text.insert('end', content)`. Use a `Canvas` widget for the line number gutter — redraw only the visible viewport on `<Configure>` and scroll events. Never insert all 80k line numbers at once.
+
+2. **Four coordinate systems** — `VolumeLoader` precomputes conversion structures:
+   - **Tkinter index**: `"line.column"` (1-based line, 0-based column)
+   - **Character offset**: 0-based from file start — stored in annotations
+   - **Line number**: 1-based — displayed in gutter and stored in annotations
+   - **Page number**: from `--- Page N ---` markers — stored in annotations
+   - `line_starts[]` array enables O(1) Tk↔char conversion; `page_breaks[]` sorted list enables O(log n) line→page lookup via bisect.
+
+3. **Case boundaries**: A case is created by marking "Start of Case." Subsequent field annotations auto-associate with the nearest preceding unclosed case. "End of Case" closes it. Annotations outside any case are rejected with a warning.
+
+4. **Consolidated cases**: A second `case_number` within the same case triggers a prompt: "Add as consolidated case number?" Auto-assigns incrementing `group` index (0, 1, 2...). `parties` annotations in consolidated cases prompt for group assignment. All other labels have `group: null`.
+
+5. **Keyboard shortcuts**: Number keys use `Ctrl+N`, letter keys use `Ctrl+Shift+L` to avoid conflicts with Ctrl+V/X/O/P (paste/cut/open/print).
+
+6. **Visual separators**: Start/End of Case lines get full-width gold background tags. No separator widgets inserted (would break char offsets).
+
+7. **Auto-save**: Atomic write (write temp file → `os.replace()` to target) after every annotation change. Prevents corruption on crash.
+
+8. **Pluggable systems**: Exporters inherit `BaseExporter`. Extraction methods implement `ExtractionMethod` protocol. Both support adding new formats/methods without modifying existing code.
+
+### Naming Conventions
+
+- Classes: `PascalCase` — `AnnotationStore`, `TextPanel`, `VolumeLoader`
+- Functions/methods: `snake_case` — `load_volume`, `add_annotation`
+- Constants: `UPPER_SNAKE_CASE` — `LABEL_CASE_NUMBER`, `COLOR_SKY_BLUE`
+- Private methods: `_underscore_prefix` — `_redraw_line_numbers`, `_on_scroll`
+- Tkinter tag names: `"highlight_{label}_{index}"` — e.g., `"highlight_case_number_0"`
+- Files: `snake_case.py`
+
+### Data Flow
+
+```
+Volume_NNN.txt → VolumeLoader → (text, line_starts[], page_breaks[])
+                                        ↓
+User actions → HighlightManager → AnnotationStore → annotations.json
+                    ↓                    ↓
+              TextPanel (tags)    SidePanel (list view)
+                                        ↓
+                              Exporters → JSON / Markdown
+                              Evaluation → RegexMethod → results
+```
+
+### Import Rules
+
+- `gui/` modules import freely from `constants.py` and `models.py`
+- No circular imports — `app.py` is the composition root that wires components
+- `evaluation.py` dynamically imports `improved_regex.py` via `importlib` — never a static import
+- Zero external dependencies — stdlib + tkinter only
+- Entry point `annotate_gui.py` adds its own directory to `sys.path` for clean imports

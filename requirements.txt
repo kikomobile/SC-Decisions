@@ -18,3 +18,10 @@ tqdm
 
 # Jupyter
 notebook
+ipywidgets
+pandas
+
+# GPU-accelerated image preprocessing for OCR
+numpy
+opencv-python-headless>=4.8
+cupy-cuda12x>=13.0
