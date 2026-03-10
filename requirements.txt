@@ -25,3 +25,7 @@ pandas
 numpy
 opencv-python-headless>=4.8
 cupy-cuda12x>=13.0
+
+# Detection pipeline dependencies
+rapidfuzz>=3.0.0
+openai>=1.0.0
