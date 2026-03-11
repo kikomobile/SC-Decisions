@@ -1,3 +1,4 @@
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
@@ -13,6 +14,7 @@ from gui.side_panel import SidePanel
 from gui.exporters import JsonExporter, MarkdownExporter
 from gui.evaluation import RegexMethod, EvaluationRunner
 from gui.status_bar import StatusBar
+from gui.correction_tracker import CorrectionTracker
 
 
 class AnnotationApp:
@@ -33,6 +35,7 @@ class AnnotationApp:
         self.highlight_manager: Optional[HighlightManager] = None  # highlight manager
         self.volume_data: Optional[VolumeData] = None  # volume-specific annotation data
         self._current_case: Optional[Case] = None  # current case being viewed
+        self.correction_tracker: CorrectionTracker = CorrectionTracker()
 
         # Build UI
         self._create_menu_bar()
@@ -86,6 +89,7 @@ class AnnotationApp:
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Open Volume... (Ctrl+O)", command=self.open_volume)
         file_menu.add_command(label="Import Predictions...", command=self.import_predictions)
+        file_menu.add_command(label="Export Corrections...", command=self.export_corrections)
         file_menu.add_command(label="Save (Ctrl+S)", command=self._save_annotations)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
@@ -301,6 +305,11 @@ class AnnotationApp:
             self.store.volumes[volume_name] = pred_volume
             self.volume_data = pred_volume
 
+            # Snapshot baseline for correction tracking
+            self.correction_tracker.set_baseline(
+                pred_volume, file_path, self.loader.text
+            )
+
             # Clear existing highlights from text widget
             for tag in self.text_panel.text.tag_names():
                 if tag.startswith("highlight_"):
@@ -337,6 +346,116 @@ class AnnotationApp:
             messagebox.showerror(
                 "Import Error",
                 f"Failed to import predictions:\n\n{str(e)}"
+            )
+
+    def export_corrections(self):
+        """File > Export Corrections handler.
+        Compute diff between baseline predictions and current annotations,
+        then write a structured JSON file for Claude/Claude Code analysis.
+        """
+        if not self.correction_tracker.has_baseline():
+            messagebox.showwarning(
+                "No Baseline",
+                "Import predictions first, then make corrections, then export."
+            )
+            return
+
+        if not self.volume_data:
+            messagebox.showwarning(
+                "No Volume",
+                "No volume data loaded."
+            )
+            return
+
+        # Compute diff
+        log = self.correction_tracker.compute_diff(self.volume_data)
+
+        if log.summary.get("total_corrections", 0) == 0:
+            messagebox.showinfo(
+                "No Corrections",
+                "No corrections detected. Predictions match current annotations."
+            )
+            return
+
+        # Default output directory
+        corrections_dir = Path(__file__).parent.parent / "corrections"
+        vol_stem = Path(log.volume_name).stem
+        default_name = f"{vol_stem}_corrections.json"
+
+        file_path = filedialog.asksaveasfilename(
+            initialdir=str(corrections_dir),
+            initialfile=default_name,
+            title="Export Corrections",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            out_path = Path(file_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Build corrections list grouped by case_id
+            corrections_out = []
+            for c in log.corrections:
+                corrections_out.append({
+                    "case_id": c.case_id,
+                    "type": c.correction_type,
+                    "label": c.label,
+                    "original": c.original,
+                    "corrected": c.corrected,
+                    "context": c.context_text
+                })
+
+            total_corr = log.summary["total_corrections"]
+            cases_corr = log.summary["cases_with_corrections"]
+            total_cases = cases_corr + log.summary["cases_perfect"]
+
+            analysis_prompt = (
+                f"The following is a correction log from human review of automated "
+                f"extraction results for Philippine Supreme Court case {log.volume_name}. "
+                f"The detection pipeline used regex-based extraction with OCR correction. "
+                f"A human reviewer corrected {total_corr} annotations across "
+                f"{cases_corr} cases (out of {total_cases} total). "
+                f"Analyze these corrections to identify: "
+                f"(1) systematic patterns in what the pipeline gets wrong, "
+                f"(2) specific regex patterns or FSM transitions that need updating, "
+                f"(3) labels that would benefit most from improved extraction logic. "
+                f"Focus on actionable suggestions referencing the pipeline source files "
+                f"in regex_improve/detection/."
+            )
+
+            export_data = {
+                "format": "correction_log",
+                "version": 1,
+                "volume_name": log.volume_name,
+                "source_predictions": log.source_file,
+                "summary": {
+                    "total_predicted_annotations": log.total_predicted,
+                    "total_corrections": total_corr,
+                    "cases_reviewed": total_cases,
+                    "cases_with_corrections": cases_corr,
+                    "cases_perfect": log.summary["cases_perfect"],
+                    "by_type": log.summary.get("by_type", {}),
+                    "by_label": log.summary.get("by_label", {})
+                },
+                "corrections": corrections_out,
+                "analysis_prompt": analysis_prompt
+            }
+
+            with open(out_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+            messagebox.showinfo(
+                "Export Complete",
+                f"Exported {total_corr} corrections to:\n{out_path}"
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Export Error",
+                f"Failed to export corrections:\n\n{str(e)}"
             )
 
     def _apply_page_marker_styling(self):

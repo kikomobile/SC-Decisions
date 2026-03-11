@@ -799,6 +799,293 @@ T5 (OCR correction) ── standalone ──── T6 (confidence) ──── 
 
 ---
 
+## Correction Tracking Tasks
+
+These tasks add human-review correction tracking to the GUI. When a user imports pipeline predictions and modifies them (fix labels, adjust spans, add missing annotations, delete false positives), the changes are recorded as structured corrections. The corrections file is designed to be fed into Claude/Claude Code for pipeline improvement analysis.
+
+---
+
+### CT-1: Snapshot Baseline on Import + Diff Engine
+
+**Status:** DONE
+**Review notes:** CorrectionTracker with deep-copy baseline, 4-type diff engine (removed, added, label_changed, span_adjusted). Test block: 3 corrections detected correctly from mock data (1 label change, 1 span adjustment, 1 addition). Natural sort for case_id ordering. Context extraction with newline escaping. All pipeline tests still pass.
+**Depends on:** GUI Import Predictions feature (already implemented in app.py)
+**Files to modify:**
+- `regex_improve/gui/app.py`
+- `regex_improve/gui/file_io.py`
+**Files to create:**
+- `regex_improve/gui/correction_tracker.py`
+
+**Description:**
+When the user imports a predicted.json via "File > Import Predictions...", snapshot the original predictions as a frozen baseline. On every subsequent annotation change (add, remove), compute the diff between the current state and the baseline, and write it to a corrections file.
+
+#### `regex_improve/gui/correction_tracker.py`
+
+**Imports:**
+```python
+import json
+import copy
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any
+from gui.models import Annotation, Case, VolumeData
+```
+
+**Data classes:**
+```python
+@dataclass
+class CorrectionEntry:
+    case_id: str
+    correction_type: str        # "removed", "added", "label_changed", "span_adjusted"
+    label: str                  # the annotation label involved
+    original: Optional[dict]    # original annotation dict (None for "added")
+    corrected: Optional[dict]   # corrected annotation dict (None for "removed")
+    context_text: str           # ~200 chars of surrounding volume text for analysis
+    start_line: int             # line number for reference
+    notes: str = ""             # optional user note
+
+@dataclass
+class CorrectionLog:
+    volume_name: str
+    source_file: str            # path to the predicted.json that was imported
+    total_predicted: int        # how many annotations were in the original predictions
+    corrections: List[CorrectionEntry] = field(default_factory=list)
+    summary: Dict[str, Any] = field(default_factory=dict)
+```
+
+**Class `CorrectionTracker`:**
+
+Fields:
+- `baseline: Optional[VolumeData]` -- deep copy of imported predictions, frozen
+- `volume_name: str`
+- `source_file: str` -- path to the imported predicted.json
+- `volume_text: str` -- full volume text (for extracting context)
+
+Methods:
+
+1. `set_baseline(self, volume_data: VolumeData, source_file: str, volume_text: str)`:
+   - Deep copy `volume_data` using `copy.deepcopy()` and store as `self.baseline`
+   - Store `source_file` and `volume_text`
+   - Store `volume_name = volume_data.volume`
+
+2. `has_baseline(self) -> bool`:
+   - Return whether a baseline has been set
+
+3. `compute_diff(self, current: VolumeData) -> CorrectionLog`:
+   - Compare `self.baseline` against `current` case by case
+   - Match cases by `case_id`
+   - For each matched case pair, compare annotations:
+     - Use `(label, start_char, end_char)` as the annotation key for matching
+     - **Exact match**: annotation exists in both baseline and current with same label, start_char, end_char, text -- no correction needed
+     - **Removed**: annotation exists in baseline but not in current (any key) -- `correction_type="removed"` (pipeline false positive)
+     - **Added**: annotation exists in current but not in baseline -- `correction_type="added"` (pipeline false negative)
+     - **Label changed**: same `(start_char, end_char)` exists in both but with different `label` -- `correction_type="label_changed"`
+     - **Span adjusted**: same `label` exists in both, `start_char` or `end_char` within 200 chars of each other but not identical -- `correction_type="span_adjusted"`. Match by closest `start_char` for same label.
+   - For unmatched baseline cases (case_id not in current): all annotations are "removed"
+   - For unmatched current cases (case_id not in baseline): all annotations are "added"
+   - For each correction, extract `context_text`: `volume_text[max(0, start_char-100):min(len(volume_text), end_char+100)]`
+   - Compute `summary`:
+     ```python
+     {
+         "total_corrections": int,
+         "by_type": {"removed": int, "added": int, "label_changed": int, "span_adjusted": int},
+         "by_label": {"parties": int, "ponente": int, ...},  # count per label
+         "cases_with_corrections": int,
+         "cases_perfect": int  # cases with zero corrections
+     }
+     ```
+   - Return `CorrectionLog`
+
+4. `_get_context(self, start_char: int, end_char: int) -> str`:
+   - Return `self.volume_text[max(0, start_char-100):min(len(self.volume_text), end_char+100)]`
+   - Replace newlines with `\n` literal for single-line display
+
+**`if __name__ == "__main__"` test block:**
+- Create two mock VolumeData objects (baseline and modified)
+- Baseline has 3 cases with annotations; modified has 1 annotation removed, 1 added, 1 label changed
+- Call `compute_diff()`, print the corrections and summary
+- Assert correction counts match expected
+
+**Constraints:**
+- Deep copy the baseline on `set_baseline` -- do NOT hold a reference to the live VolumeData
+- The diff must handle cases where the user adds entirely new cases or deletes entire cases
+- `context_text` must be safe for JSON serialization (escape special characters)
+- Do NOT import from detection/ modules -- this is a gui/ module
+- Do NOT use Unicode characters in print statements
+
+---
+
+### CT-2: Export Corrections as Analysis-Ready JSON
+
+**Status:** DONE
+**Review notes:** "File > Export Corrections..." menu item added to GUI. Snapshots baseline on import via set_baseline(). Export writes structured JSON with summary (by_type, by_label, cases_perfect/corrected), corrections list with original/corrected/context, and embedded analysis_prompt for Claude. Saves to regex_improve/corrections/ directory (created on first export). Import verified, all pipeline tests pass.
+**Depends on:** CT-1
+**Files to modify:**
+- `regex_improve/gui/app.py`
+**Files to create:**
+- `regex_improve/corrections/` (directory, created on first export)
+
+**Description:**
+Add a "File > Export Corrections..." menu item to the GUI. When clicked, compute the diff between baseline predictions and current annotations, then write a structured JSON file designed for Claude/Claude Code analysis.
+
+#### Changes to `regex_improve/gui/app.py`:
+
+1. Import `CorrectionTracker` from `gui.correction_tracker`
+
+2. Add `self.correction_tracker = CorrectionTracker()` in `__init__`
+
+3. In `import_predictions()`, after the volume data is replaced (after line 301 `self.volume_data = pred_volume`), add:
+   ```python
+   self.correction_tracker.set_baseline(pred_volume, file_path, self.loader.text)
+   ```
+
+4. Add menu item "Export Corrections..." in the File menu, after "Import Predictions...":
+   ```python
+   file_menu.add_command(label="Export Corrections...", command=self.export_corrections)
+   ```
+
+5. Add `export_corrections` method:
+   - Check that `self.correction_tracker.has_baseline()` -- if not, show warning "Import predictions first, then make corrections, then export."
+   - Compute diff: `correction_log = self.correction_tracker.compute_diff(self.volume_data)`
+   - If no corrections found, show info "No corrections detected. Predictions match current annotations."
+   - Show save dialog with default filename: `{volume_name}_corrections.json` in `regex_improve/corrections/` directory
+   - Build the export dict (see format below)
+   - Write JSON with `indent=2, ensure_ascii=False`
+   - Show info with correction count
+
+#### Export JSON Format:
+
+```json
+{
+    "format": "correction_log",
+    "version": 1,
+    "volume_name": "Volume_226.txt",
+    "source_predictions": "path/to/Volume_226.predicted.json",
+    "summary": {
+        "total_predicted_annotations": 850,
+        "total_corrections": 23,
+        "cases_reviewed": 72,
+        "cases_with_corrections": 8,
+        "cases_perfect": 64,
+        "by_type": {
+            "removed": 5,
+            "added": 10,
+            "label_changed": 3,
+            "span_adjusted": 5
+        },
+        "by_label": {
+            "parties": 7,
+            "end_of_case": 5,
+            "votes": 4,
+            "ponente": 3,
+            "end_decision": 2,
+            "counsel": 2
+        }
+    },
+    "corrections": [
+        {
+            "case_id": "vol226_case_12",
+            "type": "removed",
+            "label": "parties",
+            "original": {
+                "label": "parties",
+                "text": "WRONG TEXT CAPTURED...",
+                "start_char": 15230,
+                "end_char": 15890,
+                "start_line": 1205,
+                "end_line": 1215
+            },
+            "corrected": null,
+            "context": "...100 chars before...WRONG TEXT CAPTURED......100 chars after..."
+        },
+        {
+            "case_id": "vol226_case_12",
+            "type": "added",
+            "label": "parties",
+            "original": null,
+            "corrected": {
+                "label": "parties",
+                "text": "CORRECT TEXT...",
+                "start_char": 15230,
+                "end_char": 15500,
+                "start_line": 1205,
+                "end_line": 1210
+            },
+            "context": "...surrounding text..."
+        },
+        {
+            "case_id": "vol226_case_30",
+            "type": "label_changed",
+            "label": "counsel",
+            "original": {
+                "label": "parties",
+                "text": "Atty. Juan dela Cruz for petitioner.",
+                "start_char": 34000,
+                "end_char": 34035,
+                "start_line": 3400,
+                "end_line": 3400
+            },
+            "corrected": {
+                "label": "counsel",
+                "text": "Atty. Juan dela Cruz for petitioner.",
+                "start_char": 34000,
+                "end_char": 34035,
+                "start_line": 3400,
+                "end_line": 3400
+            },
+            "context": "...surrounding text..."
+        }
+    ],
+    "analysis_prompt": "The following is a correction log from human review of automated extraction results for Philippine Supreme Court case Volume_226.txt. The detection pipeline used regex-based extraction with OCR correction. A human reviewer corrected 23 annotations across 8 cases (out of 72 total). Analyze these corrections to identify: (1) systematic patterns in what the pipeline gets wrong, (2) specific regex patterns or FSM transitions that need updating, (3) labels that would benefit most from improved extraction logic. Focus on actionable suggestions referencing the pipeline source files in regex_improve/detection/."
+}
+```
+
+**Key design decisions:**
+
+- `analysis_prompt` is embedded in the JSON so the user can paste the entire file content to Claude/Claude Code and get analysis without writing a separate prompt
+- `context` provides surrounding text so Claude can see what the pipeline was working with
+- `by_label` in summary immediately shows which labels are weakest
+- `by_type` shows whether the pipeline is producing more false positives (removed) or false negatives (added)
+- `original` + `corrected` side by side makes it easy to see exactly what changed
+
+**`if __name__ == "__main__"` test block in app.py:** Not needed -- test via the GUI.
+
+**Constraints:**
+- Create `regex_improve/corrections/` directory on first export (use `mkdir(parents=True, exist_ok=True)`)
+- The `analysis_prompt` must include the volume name and correction counts so it's self-contained
+- Corrections must be grouped by case_id in the output (all corrections for case_12 together, then case_30, etc.)
+- Sort cases by case_id naturally (vol226_case_0 before vol226_case_10)
+- Do NOT auto-export on every change -- only on explicit "Export Corrections..." click
+- Do NOT modify correction_tracker.py (only import from it)
+- Do NOT use Unicode characters in any strings
+- The exported file must be valid JSON loadable by `json.load()`
+
+---
+
+### Correction Tracking Dependency Graph
+
+```
+CT-1 (tracker + diff engine) ---- CT-2 (export + menu item)
+```
+
+CT-1 must be completed first. CT-2 depends on CT-1.
+
+---
+
+### Correction Tracking File Tree
+
+```
+regex_improve/
+├── gui/
+│   ├── correction_tracker.py    # CT-1
+│   ├── app.py                   # CT-2 (modified)
+│   └── ... (existing modules)
+├── corrections/                 # CT-2 (created on first export)
+│   └── Volume_NNN_corrections.json
+```
+
+---
+
 ## Python Dependencies to Add
 
 Add to `requirements.txt`:
@@ -827,8 +1114,11 @@ regex_improve/
 │   └── tests/
 │       ├── __init__.py          # T9
 │       └── test_pipeline.py     # T9
-├── gui/                         # [COMPLETE — do not modify]
-│   └── ... (all GUI modules)
+├── gui/
+│   ├── correction_tracker.py   # CT-1
+│   └── ... (other GUI modules)
+├── corrections/                 # CT-2 (created on first export)
+│   └── Volume_NNN_corrections.json
 ├── annotate_gui.py
 ├── improved_regex.py
 └── samples/
