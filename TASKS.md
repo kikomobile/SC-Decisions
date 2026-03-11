@@ -1086,6 +1086,457 @@ regex_improve/
 
 ---
 
+## Pipeline Fix Tasks (from Volume 227 Correction Analysis)
+
+Human review of Volume 227 (74 cases) found 181 corrections across 43 cases. Analysis identified 6 root causes, prioritized by number of corrections they would fix. These fixes should be applied and re-tested against both Volume 226 ground truth (to prevent regression) and Volume 227 (to verify improvement).
+
+**Validation:** After each fix, run:
+```
+cd regex_improve
+python -m detection ../downloads/Volume_226.txt --score annotation_exports/ground_truth_20260309_144413.json --skip-llm
+python -m detection ../downloads/Volume_227.txt --skip-llm
+```
+Then import the Vol 227 predicted.json into the GUI and spot-check the corrected labels.
+
+---
+
+### FIX-1: Votes Overflow Past Page Breaks
+
+**Status:** TODO
+**Estimated impact:** ~28 votes + ~25 end_of_case corrections (29% of all corrections)
+**Depends on:** None
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+The votes extraction loop (`section_extractor.py:461-500`) captures all lines from `end_decision_line + 1` up to `boundary.end_line` (the next case's start minus 1), stopping only at `RE_SEPARATE_OPINION`. This means votes absorb `--- Page N ---` markers, `PHILIPPINE REPORTS` headers, volume short titles, footnotes, and even entire subsequent cases when boundaries are missed.
+
+**Root cause in code:**
+```python
+# section_extractor.py:464-466 — votes includes ALL lines up to boundary.end_line
+for line_num, text in lines:
+    if line_num >= votes_start_line and line_num <= boundary.end_line:
+        votes_lines.append((line_num, text))
+```
+
+The `lines` list (from `get_content_lines`) already filters noise, but `--- Page N ---` markers are noise-masked, so they don't appear in `lines`. The real problem is that footnotes, SCRA citations, and next-case headers that survive the noise filter are NOT excluded.
+
+**Fix:**
+
+1. In `_extract_case` (around line 461-500), replace the votes extraction logic. After finding `end_decision_line`, collect votes lines with a **strict termination** strategy:
+
+   ```python
+   # Collect votes: lines after end_decision, terminated by:
+   # (a) A blank line followed by another blank line (double blank = section break)
+   # (b) Any line matching RE_DIVISION or RE_CASE_BRACKET (next case start)
+   # (c) Any line matching RE_SEPARATE_OPINION (existing check)
+   # (d) Maximum 15 non-blank lines (votes are never longer than ~10 lines)
+   ```
+
+2. Implement the termination logic:
+   - Start from `end_decision_line + 1`
+   - Skip leading blank lines (there's usually 1 blank line between "SO ORDERED." and the concurrence)
+   - Collect non-blank lines that look like votes (contain "concur", "dissent", justice names, "JJ.", "J.,", "Chairman", etc.)
+   - Stop at the first line that does NOT look like a votes line after the concurrence has started
+   - Also stop at any line matching `RE_DIVISION` or `RE_CASE_BRACKET` (imported from `boundary_fsm.py`)
+   - Cap at 15 non-blank lines maximum
+
+3. Add a simple votes-content heuristic. A valid votes line typically contains one or more of:
+   - Justice surname patterns (all-caps words)
+   - "concur" / "dissent" / "dissenting" / "separate opinion"
+   - "JJ." / "J.," / "J.:" / "C.J."
+   - "Chairman" / "Presiding"
+   - "(on leave)" / "(on official leave)" / "(no part)"
+   - Footnote markers should NOT be included (lines starting with digits followed by a space, or lines starting with `*` or `"`)
+
+4. After votes extraction, set `end_of_case` to the last line of votes (or `end_decision_line` if no votes found), NOT to `boundary.end_line`.
+
+**Example of the bug:**
+```
+Original votes (vol227_case_6):
+  "Feria (Chairman), Fernan, Alampay, and Gutierrez, Jr, JJ,\nconcur,\n\n--- Page 89 ---\n72\nPHILIPPINE REPORTS\nVda. de Roxas vs. CA"
+
+Corrected votes:
+  "Feria (Chairman), Fernan, Alampay, and Gutierrez, Jr, JJ,\nconcur,"
+```
+
+**Constraints:**
+- Import `RE_DIVISION` and `RE_CASE_BRACKET` from `boundary_fsm` at the top of `section_extractor.py`
+- Do NOT change how `boundary.end_line` is set in `boundary_fsm.py` — the fix is entirely in section_extractor
+- The `end_of_case` annotation must land on the last line of the current case's content (votes or end_decision), never on the next case's header
+- Do NOT use Unicode characters in print statements
+- Preserve existing `RE_SEPARATE_OPINION` handling for cases with separate opinions
+
+---
+
+### FIX-2: Missed Case Boundaries from OCR-Corrupted Brackets
+
+**Status:** TODO
+**Estimated impact:** ~90 cascading corrections across all label types (50% of all corrections)
+**Depends on:** None (can be done in parallel with FIX-1)
+**Files to modify:**
+- `regex_improve/detection/boundary_fsm.py`
+
+**Description:**
+5 cases in Volume 227 were completely missed because `RE_CASE_BRACKET` (`boundary_fsm.py:31-40`) failed to match their opening bracket line. OCR commonly corrupts `[` into `1`, `(`, `{`, or drops it. Lines like `1G.R. No. 12345. July 1, 1986]` or `G.R. No. 12345. July 1, 1986]` (no opening bracket) fail the regex.
+
+**Root cause in code:**
+```python
+# boundary_fsm.py:31-32 — requires literal opening bracket
+RE_CASE_BRACKET = re.compile(
+    r'^[\[\(\{]'   # <-- This REQUIRES [, (, or { as first character
+    ...
+)
+```
+
+**Fix:**
+
+1. Make the opening bracket optional in `RE_CASE_BRACKET`. Replace:
+   ```python
+   r'^[\[\(\{]'
+   ```
+   with:
+   ```python
+   r'^[\[\(\{1]?'   # Opening bracket: [, (, {, or OCR-corrupted 1, or missing entirely
+   ```
+
+   The `1` covers the common OCR error where `[` is read as `1`. The `?` makes the entire bracket optional, covering the case where OCR drops it.
+
+2. However, making the opening bracket fully optional risks false positives (matching regular text lines that happen to start with "G.R. No."). To prevent this, add a constraint: when the opening bracket is absent, require a closing bracket `]`, `)`, or `}` at the end of the line. Modify the regex:
+
+   ```python
+   RE_CASE_BRACKET = re.compile(
+       r'^[\[\(\{1]?'                # Opening bracket (optional, tolerates OCR errors)
+       r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|'
+       r'A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+       r'Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
+       r'\s*([\w\-/&\s\.]+?)'        # case number (non-greedy)
+       r'[\.\s,]+'                    # separator
+       r'(.+)'                        # date text (greedy)
+       r'[\]\)\}]'                    # Closing bracket (still required)
+       r'.*$',
+       re.IGNORECASE
+   )
+   ```
+
+3. Also add `RE_CASE_BRACKET_NO_CLOSE` as a fallback pattern for lines where BOTH brackets are corrupted/missing but the line clearly contains a G.R. number and date:
+   ```python
+   RE_CASE_BRACKET_NO_CLOSE = re.compile(
+       r'^[\[\(\{1]?'
+       r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|'
+       r'A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+       r'Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
+       r'\s*([\w\-/&\s\.]+?)'
+       r'[\.\s,]+'
+       r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})',
+       re.IGNORECASE
+   )
+   ```
+   Use this as a second attempt in the `EXPECTING_BRACKET` state (line 111) only if the primary `RE_CASE_BRACKET` fails.
+
+4. In the FSM's `EXPECTING_BRACKET` state (`boundary_fsm.py:107-161`), after the primary regex fails, try the fallback:
+   ```python
+   bracket_match = RE_CASE_BRACKET.match(line_text)
+   if not bracket_match:
+       bracket_match = RE_CASE_BRACKET_NO_CLOSE.match(line_text)
+   if bracket_match:
+       # ... existing processing
+   ```
+
+**Testing:** After the fix, run the pipeline on Volume 227 and verify that 74 cases are detected (currently 69). The 5 new cases should be: Benguet Consolidated (~p.439), Ibasco (~p.513), People vs. Poyos (~p.518), Royal Lines (~p.587), Cuevas (~p.652).
+
+**Constraints:**
+- The primary `RE_CASE_BRACKET` (with closing bracket required) should be tried FIRST to avoid false positives
+- The fallback `RE_CASE_BRACKET_NO_CLOSE` requires an explicit month-name date pattern to reduce false matches
+- Do NOT change the FSM state transitions — only change what regex is matched
+- Run the Volume 226 test after the fix to ensure no regression (should still detect 72 cases)
+- Do NOT use Unicode characters in print statements
+- Update `_extract_case_number_from_bracket` if needed to handle missing closing brackets
+
+---
+
+### FIX-3: Quoted "SO ORDERED." Triggers False end_decision
+
+**Status:** TODO
+**Estimated impact:** ~15 end_decision corrections + cascading votes/end_of_case errors
+**Depends on:** None (can be done in parallel with FIX-1 and FIX-2)
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+The end_decision scanner (`section_extractor.py:417-421`) takes the **first** `RE_SO_ORDERED` match in the decision body. Philippine Supreme Court decisions frequently quote lower court orders verbatim, which contain their own "SO ORDERED." or "IT IS SO ORDERED." lines. The pipeline matches the quoted one instead of the actual dispositive ending.
+
+**Root cause in code:**
+```python
+# section_extractor.py:417-421 — takes FIRST match, breaks immediately
+for i, (line_num, text) in enumerate(decision_lines):
+    if RE_SO_ORDERED.match(text):
+        end_decision_line = line_num
+        end_decision_text = text
+        break   # <-- This is the bug: should continue to find the LAST match
+```
+
+**Fix:**
+
+1. Change the `break` on first `RE_SO_ORDERED` match to continue scanning, keeping track of the **last** match:
+
+   ```python
+   # Scan ALL decision lines, keep the LAST "SO ORDERED." match
+   for i, (line_num, text) in enumerate(decision_lines):
+       if RE_SO_ORDERED.match(text):
+           end_decision_line = line_num
+           end_decision_text = text
+           # Do NOT break — continue to find the last occurrence
+       # Also check other ending patterns (keep existing logic for
+       # ACQUITTED/DISMISSED/AFFIRMED, "immediately executory", etc.)
+       # but these should ALSO use last-match, not first-match
+   ```
+
+2. However, the other ending patterns (`is ACQUITTED/DISMISSED`, `immediately executory`, `It is so ordered.`) at lines 423-434 should also be changed to last-match. Simplify: collect all candidate end_decision lines, then pick the **last** one by line number.
+
+3. As an additional safeguard, if both "SO ORDERED." and "It is so ordered." (case-sensitive — the quoted one often has lowercase "is") appear, prefer the one that appears later. The actual dispositive "SO ORDERED." is always the last such marker in the decision.
+
+**Example of the bug:**
+```
+vol227_case_34:
+  FALSE match at line ~16066: "It is SO ORDERED." (inside quoted lower court order)
+  REAL match at line 16105:   "SO ORDERED." (actual end of decision)
+```
+
+**Constraints:**
+- The fix must handle cases with only ONE "SO ORDERED." (common case — no regression)
+- The fix must handle cases with ZERO "SO ORDERED." (existing fallback logic at lines 436-449 is unchanged)
+- Do NOT use Unicode characters in print statements
+- Do NOT modify `RE_SO_ORDERED` regex itself — the matching pattern is correct, only the selection strategy (first vs last) needs to change
+
+---
+
+### FIX-4: Counsel Span Bleeds Past Page Breaks
+
+**Status:** TODO
+**Estimated impact:** ~22 counsel corrections
+**Depends on:** None
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+The counsel extraction (`section_extractor.py:276-305`) finds "APPEARANCES OF COUNSEL" and extends the span until `RE_DOC_TYPE` is matched. But the counsel block often spans a page break, and the lines between the last attorney line and the doc_type header (page markers, volume headers, short titles) are included in the counsel text because `get_content_lines` already filtered noise — but lines like the next case's short title (`"Marcopper Mining Corp. vs. Garcia"`) survive the noise filter.
+
+**Root cause in code:**
+```python
+# section_extractor.py:279-283 — scans until RE_DOC_TYPE, nothing else stops it
+while counsel_end_idx < len(lines):
+    end_line_num, end_text = lines[counsel_end_idx]
+    if RE_DOC_TYPE.match(end_text):
+        break
+    counsel_end_idx += 1
+```
+
+**Fix:**
+
+1. Add an early termination heuristic after the counsel header. The counsel block has a predictable structure:
+   - Line 1: "APPEARANCES OF COUNSEL" (or "APPEARANCE OF COUNSEL")
+   - Lines 2+: Attorney names with "for petitioner/respondent/plaintiff/defendant/appellant/appellee" designations
+   - The block ends after the last attorney designation line
+
+2. Replace the simple `while` loop with a smarter scan:
+
+   ```python
+   # After finding "APPEARANCES OF COUNSEL", scan for attorney lines.
+   # An attorney line typically ends with a legal designation:
+   #   "for petitioner.", "for respondents.", "for plaintiff-appellant.", etc.
+   # Stop counsel when we hit:
+   # (a) RE_DOC_TYPE
+   # (b) Two consecutive blank lines
+   # (c) A line that matches RE_DIVISION or RE_CASE_BRACKET (next case boundary)
+   # (d) 30 lines scanned without finding any "for" designation (safety limit)
+   ```
+
+3. Define a regex for attorney designation lines:
+   ```python
+   RE_COUNSEL_DESIGNATION = re.compile(
+       r'for\s+(?:the\s+)?(?:petitioner|respondent|plaintiff|defendant|appellant|appellee|'
+       r'accused|complainant|private|intervenor|oppositor)',
+       re.IGNORECASE
+   )
+   ```
+
+4. Track whether we've seen at least one designation line. After seeing one, stop at the first blank line (the designation block is complete). If we never see one (unusual formatting), fall back to the existing `RE_DOC_TYPE` termination but cap at 30 lines.
+
+5. Import `RE_DIVISION` and `RE_CASE_BRACKET` from `boundary_fsm` (may already be imported from FIX-1) and add them as stop conditions.
+
+**Example of the bug:**
+```
+vol227_case_19 original counsel:
+  "APPEARANCES OF COUNSEL\n\nGozon Puno...\nManuel S. Laurel...\n\n--- Page 187 ---\n170 PHILIPPINE REPORTS\nMarcopper Mining Corp. vs. Garcia\n"
+
+Corrected:
+  "APPEARANCES OF COUNSEL\n\nGozon Puno...\nManuel S. Laurel for private respondent."
+```
+
+**Constraints:**
+- Do NOT change the counsel `start_line` — it correctly starts at "APPEARANCES OF COUNSEL"
+- Only change the end boundary logic
+- The fix must handle counsel blocks with multiple attorneys (2-6 lines is typical)
+- The fix must handle counsel blocks with no "for" designations (rare, but possible — fall back to existing behavior with line cap)
+- Do NOT use Unicode characters in print statements
+
+---
+
+### FIX-5: Parties Span Absorbs Footnotes from Previous Case
+
+**Status:** TODO
+**Estimated impact:** ~14 parties corrections
+**Depends on:** None
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+The parties extraction (`section_extractor.py:192-198`) collects all lines between the last case bracket and the first `RE_SYLLABUS` or `RE_DOC_TYPE` match. When footnotes from the previous case appear on the same page (between the previous case's body and the current case's header area), they get absorbed into the parties span.
+
+**Root cause in code:**
+```python
+# section_extractor.py:193-198 — only stops at SYLLABUS or DOC_TYPE
+parties_end_idx = parties_start_idx
+while parties_end_idx < len(lines):
+    line_num, text = lines[parties_end_idx]
+    if RE_SYLLABUS.match(text) or RE_DOC_TYPE.match(text):
+        break
+    parties_end_idx += 1
+```
+
+**Fix:**
+
+1. Add stop conditions for footnote content. Parties blocks end with a legal designation like "respondents.", "respondent.", "petitioners.", "petitioner.", "plaintiff-appellant.", "defendant-appellee.", etc. After seeing such a line, the next blank line should terminate the parties block.
+
+2. Define a parties termination regex:
+   ```python
+   RE_PARTIES_END = re.compile(
+       r'(?:respondents?|petitioners?|plaintiffs?|defendants?|appellants?|appellees?|'
+       r'accused-appellants?|intervenors?|oppositors?)\s*[.,;]*\s*$',
+       re.IGNORECASE
+   )
+   ```
+
+3. Update the parties scanning loop:
+   ```python
+   seen_designation = False
+   while parties_end_idx < len(lines):
+       line_num, text = lines[parties_end_idx]
+       if RE_SYLLABUS.match(text) or RE_DOC_TYPE.match(text):
+           break
+       if RE_PARTIES_END.search(text):
+           seen_designation = True
+           parties_end_idx += 1
+           # After the designation line, skip trailing blank lines and stop
+           while parties_end_idx < len(lines) and not lines[parties_end_idx][1].strip():
+               parties_end_idx += 1
+           break
+       # Also stop at footnote-like lines (start with digit+space or quotation mark)
+       if seen_designation and not text.strip():
+           break
+       parties_end_idx += 1
+   ```
+
+4. Additionally, stop if a line starts with a footnote indicator:
+   - Line starts with `"` (opening quote — footnote citation)
+   - Line starts with a digit followed by a space and then text (footnote number)
+   - Line starts with `*` (asterisk footnote)
+
+**Example of the bug:**
+```
+vol227_case_27 original parties:
+  "FELISA RIVERA...respondents.\n\n\" Bernas, Constitutional Rights and Duties, Vol. I, 1974 Edition, p. 100."
+
+Corrected:
+  "FELISA RIVERA...respondents."
+```
+
+**Constraints:**
+- The fix must handle parties blocks that span multiple lines (typical: 3-15 lines)
+- The fix must handle consolidated cases with multiple party groups
+- Do NOT stop at every period — only at lines ending with a legal designation
+- If no designation is found (unusual formatting), fall back to existing `RE_SYLLABUS`/`RE_DOC_TYPE` stop
+- Do NOT use Unicode characters in print statements
+
+---
+
+### FIX-6: Page Number Bug — get_page() Called with Char Offset Instead of Line Number
+
+**Status:** TODO
+**Estimated impact:** All annotations (cosmetic — wrong page numbers in every annotation)
+**Depends on:** None
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+`VolumeLoader.get_page()` expects a **1-based line number**, but `section_extractor.py` passes **character offsets** at 6 call sites (lines 119, 120, 141, 142, 611, 612). Since char offsets are large numbers (e.g., 158930), `get_page()` treats them as line numbers, and bisect returns the last page break, giving page 730 (the volume index page) for nearly every annotation.
+
+**Root cause in code:**
+```python
+# section_extractor.py:119-120 — passes start_char (a char offset) to get_page (expects line number)
+start_page = self.loader.get_page(cn.start_char)    # BUG: cn.start_char is a char offset
+end_page = self.loader.get_page(cn.end_char - 1)    # BUG: cn.end_char is a char offset
+
+# volume_loader.py:148 — get_page expects a 1-based line number
+def get_page(self, line: int) -> int:
+    """Get the page number for a 1-based line number."""
+```
+
+**Fix:**
+
+1. At all 6 call sites in `section_extractor.py`, convert the char offset to a line number first, then call `get_page`:
+
+   Replace (lines 119-120):
+   ```python
+   start_page = self.loader.get_page(cn.start_char)
+   end_page = self.loader.get_page(cn.end_char - 1)
+   ```
+   With:
+   ```python
+   start_page = self.loader.get_page(self.loader.char_to_line(cn.start_char))
+   end_page = self.loader.get_page(self.loader.char_to_line(cn.end_char - 1))
+   ```
+
+2. Apply the same fix at lines 141-142 (date page numbers):
+   ```python
+   start_page = self.loader.get_page(self.loader.char_to_line(boundary.date_start_char))
+   end_page = self.loader.get_page(self.loader.char_to_line(boundary.date_end_char - 1))
+   ```
+
+3. Apply the same fix at lines 611-612 (inside `_make_annotation`):
+   ```python
+   start_page = self.loader.get_page(self.loader.char_to_line(start_char))
+   end_page = self.loader.get_page(self.loader.char_to_line(end_char - 1))
+   ```
+
+**Testing:** After the fix, run on Volume 226 and check that case 0's start_of_case annotation has a page number matching the actual `--- Page N ---` marker near that line (should be a small number like 1-5, not 730).
+
+**Constraints:**
+- Do NOT modify `volume_loader.py` — the `get_page()` method is correct for its contract (takes line number)
+- Only fix the call sites in `section_extractor.py` that pass the wrong argument type
+- All 6 call sites must be fixed (lines 119, 120, 141, 142, 611, 612)
+- Do NOT use Unicode characters in print statements
+
+---
+
+### FIX Dependency Graph
+
+```
+FIX-1 (votes overflow)     -- independent
+FIX-2 (missed boundaries)  -- independent
+FIX-3 (quoted SO ORDERED)  -- independent
+FIX-4 (counsel overflow)   -- independent
+FIX-5 (parties footnotes)  -- independent
+FIX-6 (page number bug)    -- independent
+
+All are independent — can be done in any order or in parallel.
+FIX-1 + FIX-2 together fix ~80% of corrections.
+After all fixes, re-run on Volume 226 (regression test) and Volume 227 (improvement test).
+```
+
+---
+
 ## Dynamic Justice Registry Tasks
 
 These tasks replace the hardcoded `KNOWN_JUSTICES` list in `ocr_correction.py` with a dynamically-growing `justices.json` file. A separate CLI command harvests high-confidence ponente names from pipeline output and appends new justices to the registry. After harvesting, already-processed volumes can be re-run to benefit from the expanded list.
@@ -1441,6 +1892,7 @@ regex_improve/
 │   ├── confidence.py            # T6
 │   ├── llm_fallback.py          # T7
 │   ├── pipeline.py              # T8
+│   │   # FIX-1 thru FIX-6 modify: section_extractor.py, boundary_fsm.py
 │   ├── justices.json            # KJ-1 (committed, grows via harvest)
 │   ├── justice_registry.py      # KJ-1
 │   ├── harvest_justices.py      # KJ-2
