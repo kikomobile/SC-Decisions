@@ -1086,6 +1086,336 @@ regex_improve/
 
 ---
 
+## Dynamic Justice Registry Tasks
+
+These tasks replace the hardcoded `KNOWN_JUSTICES` list in `ocr_correction.py` with a dynamically-growing `justices.json` file. A separate CLI command harvests high-confidence ponente names from pipeline output and appends new justices to the registry. After harvesting, already-processed volumes can be re-run to benefit from the expanded list.
+
+---
+
+### KJ-1: Justice Registry — Seed File + Loader + Wiring
+
+**Status:** TODO
+**Depends on:** T5 (ocr_correction.py), T6 (confidence.py)
+**Files to create:**
+- `regex_improve/detection/justices.json`
+- `regex_improve/detection/justice_registry.py`
+**Files to modify:**
+- `regex_improve/detection/ocr_correction.py`
+- `regex_improve/detection/confidence.py`
+- `regex_improve/detection/pipeline.py`
+
+**Description:**
+Create a JSON seed file with the 11 known Vol 226 justices, a small registry module with load/save functions, and rewire `ocr_correction.py` and `confidence.py` to use the registry instead of a hardcoded list.
+
+#### `regex_improve/detection/justices.json`
+
+Pre-seeded with the current 11 names from `ocr_correction.py:20-25`:
+
+```json
+{
+    "description": "Known Philippine Supreme Court justice surnames for ponente fuzzy matching. Grows dynamically via harvest_justices.py.",
+    "justices": [
+        "ABAD SANTOS",
+        "ALAMPAY",
+        "CRUZ",
+        "FERIA",
+        "FERNAN",
+        "GUTIERREZ, JR.",
+        "MELENCIO-HERRERA",
+        "NARVASA",
+        "PARAS",
+        "TEEHANKEE",
+        "YAP"
+    ]
+}
+```
+
+#### `regex_improve/detection/justice_registry.py`
+
+**Imports:**
+```python
+import json
+from pathlib import Path
+from typing import List
+```
+
+**Module-level constant:**
+```python
+_REGISTRY_PATH = Path(__file__).resolve().parent / "justices.json"
+```
+
+**Functions:**
+
+1. `load_justices(path: Path = None) -> List[str]`:
+   - If `path` is None, use `_REGISTRY_PATH`
+   - Read the JSON file, return the `"justices"` list
+   - If file does not exist or is malformed, print a warning and return an empty list (do NOT crash)
+   - Return a copy of the list (not a reference to the internal data)
+
+2. `save_justices(justices: List[str], path: Path = None) -> None`:
+   - If `path` is None, use `_REGISTRY_PATH`
+   - Sort the list alphabetically (case-insensitive: `key=str.upper`)
+   - Deduplicate (case-insensitive comparison, keep the first occurrence's casing)
+   - Write JSON with `indent=4, ensure_ascii=False`
+   - Preserve the `"description"` field from the existing file if it exists
+
+3. `add_justices(new_names: List[str], path: Path = None) -> List[str]`:
+   - Load existing justices from file
+   - Compare new names against existing (case-insensitive)
+   - Append only genuinely new names
+   - Save the combined list
+   - Return list of names that were actually added (for reporting)
+
+**`if __name__ == "__main__"` test block:**
+- Load from seed file, assert 11 justices loaded
+- Add 2 new names (e.g., "DAVIDE, JR.", "ROMERO"), assert they appear in the file
+- Try adding a duplicate (e.g., "davide, jr." lowercase), assert it is NOT added again
+- Print results
+
+#### Changes to `regex_improve/detection/ocr_correction.py`
+
+1. Replace the hardcoded `KNOWN_JUSTICES` list (lines 19-25) with:
+   ```python
+   from .justice_registry import load_justices
+
+   # Loaded from justices.json (grows dynamically via harvest_justices.py)
+   KNOWN_JUSTICES = load_justices()
+   ```
+
+2. Remove the `# Extend as more volumes are processed` comment — it's now handled automatically.
+
+3. Everything else in `ocr_correction.py` stays the same — `correct_ponente()` still references the module-level `KNOWN_JUSTICES` variable. The fuzzy matching logic (`process.extractOne`) is unchanged.
+
+#### Changes to `regex_improve/detection/confidence.py`
+
+1. The existing import (line 19) already imports `KNOWN_JUSTICES` from `ocr_correction`:
+   ```python
+   from .ocr_correction import KNOWN_JUSTICES
+   ```
+   This still works because `ocr_correction.py` still exports `KNOWN_JUSTICES` — it's just loaded from file now instead of hardcoded. **No changes needed to confidence.py.**
+
+#### Changes to `regex_improve/detection/pipeline.py`
+
+No changes needed. `pipeline.py` imports `KNOWN_JUSTICES` from `confidence.py` (line 23), which re-exports from `ocr_correction.py`. The chain is preserved.
+
+**Constraints:**
+- The hardcoded list in `ocr_correction.py` must be completely removed — replaced by the file load
+- `load_justices()` must never crash the pipeline. If `justices.json` is missing or corrupt, return `[]` with a warning
+- `save_justices()` must sort alphabetically and deduplicate
+- Do NOT use Unicode characters in print statements
+- `justices.json` should be committed to git (it is NOT in `.gitignore`)
+- Do NOT modify `correct_ponente()` logic — only change how `KNOWN_JUSTICES` is populated
+
+---
+
+### KJ-2: Harvest Justices CLI Command
+
+**Status:** TODO
+**Depends on:** KJ-1
+**Files to create:**
+- `regex_improve/detection/harvest_justices.py`
+
+**Description:**
+Create a standalone CLI command that scans predicted.json output files, extracts ponente names from high-confidence cases (case-level confidence >= 0.9), and appends new unique names to `justices.json`. This enables a self-improving feedback loop: each batch of processed volumes improves ponente matching for subsequent runs.
+
+#### `regex_improve/detection/harvest_justices.py`
+
+**Imports:**
+```python
+import json
+import sys
+import argparse
+from pathlib import Path
+from typing import List, Dict, Any, Set
+```
+
+**CLI interface:**
+```
+python -m detection.harvest_justices <input> [--dry-run] [--threshold 0.9]
+
+positional arguments:
+  input                 Path to a single predicted.json OR a directory containing *_predicted.json files
+
+optional arguments:
+  --dry-run             Show what would be added without writing to justices.json
+  --threshold FLOAT     Minimum case confidence score to harvest ponente from (default: 0.9)
+```
+
+**Functions:**
+
+1. `extract_ponente_names(predicted_path: Path, threshold: float = 0.9) -> List[str]`:
+   - Load the predicted.json file
+   - Iterate over all cases in all volumes
+   - For each case:
+     - Parse the confidence score from `case["notes"]` field (format: `"confidence: 0.950"`)
+     - If confidence score < threshold, skip
+     - Find the annotation with `label == "ponente"`
+     - If no ponente annotation, skip
+     - Get the ponente `text` value
+     - Skip if text is empty, or contains "PER CURIAM" (case-insensitive)
+     - Skip if text length < 3 (too short to be a real name)
+     - Add to results
+   - Return list of ponente names found
+
+2. `harvest(input_path: Path, threshold: float = 0.9, dry_run: bool = False) -> Dict[str, Any]`:
+   - If `input_path` is a file, scan just that file
+   - If `input_path` is a directory, find all `*_predicted.json` and `*.predicted.json` files
+   - Call `extract_ponente_names()` for each file
+   - Collect all unique names (case-insensitive dedup)
+   - If not `dry_run`, call `add_justices()` from `justice_registry.py`
+   - Return summary dict:
+     ```python
+     {
+         "files_scanned": int,
+         "cases_above_threshold": int,
+         "ponente_names_found": int,
+         "new_names_added": ["DAVIDE, JR.", "ROMERO", ...],  # only genuinely new ones
+         "already_known": ["CRUZ", "NARVASA", ...],           # names that were already in registry
+         "skipped_per_curiam": int,
+         "dry_run": bool
+     }
+     ```
+
+3. `main()`:
+   - Parse CLI args
+   - Call `harvest()`
+   - Print human-readable summary report
+   - If new names were added (and not dry-run), print suggestion:
+     ```
+     N new justice(s) added to justices.json.
+     Consider re-running the pipeline on previously processed volumes to benefit
+     from improved ponente matching:
+         python -m detection <volume_dir> --range <range> --skip-llm
+     ```
+
+**`if __name__ == "__main__"` block:**
+- Call `main()`
+
+**Constraints:**
+- Must handle both single-file and directory input
+- Must handle malformed JSON files gracefully (skip with warning, do not crash)
+- Confidence score is parsed from the `notes` field string, NOT from a dedicated field (the pipeline writes `"confidence: 0.950"` into notes)
+- "PER CURIAM" is not a justice name — always skip it
+- Case-insensitive deduplication: "CRUZ" and "Cruz" should not both be added
+- The `--dry-run` flag must NOT modify `justices.json`
+- Do NOT use Unicode characters in print statements
+- Print a count of files scanned, names found, and names added
+
+---
+
+### KJ-3: Update Instructions.txt with Harvest Workflow
+
+**Status:** TODO
+**Depends on:** KJ-2
+**Files to modify:**
+- `regex_improve/detection/Instructions.txt`
+
+**Description:**
+Add documentation for the harvest workflow to the existing Instructions.txt. Replace the existing suggestion 8.C with concrete usage instructions now that it is implemented.
+
+#### Changes to `regex_improve/detection/Instructions.txt`
+
+1. Add a new section **9. HARVESTING JUSTICE NAMES** after section 8 (or between sections 7 and 8). Content:
+
+   ```
+   9. HARVESTING JUSTICE NAMES
+   --------------------------
+
+   The pipeline uses a list of known justice surnames (justices.json) for
+   fuzzy ponente matching and confidence scoring. This list grows dynamically
+   as you process more volumes.
+
+   After processing a batch of volumes:
+
+       cd regex_improve
+       python -m detection.harvest_justices ../downloads/predictions/
+
+       Dry run (see what would be added without modifying justices.json):
+           python -m detection.harvest_justices ../downloads/predictions/ --dry-run
+
+       Custom confidence threshold (default 0.9):
+           python -m detection.harvest_justices ../downloads/predictions/ --threshold 0.85
+
+       Single file:
+           python -m detection.harvest_justices ../downloads/Volume_226.predicted.json
+
+   The harvester only collects ponente names from cases with confidence
+   scores >= 0.9 (by default). This ensures only reliably-extracted names
+   are added to the registry. "PER CURIAM" entries are always skipped.
+
+   Recommended workflow after each phase:
+
+       1. Run the pipeline:
+           python -m detection ../downloads --range 226-260 --skip-llm
+
+       2. Harvest new justice names:
+           python -m detection.harvest_justices ../downloads/predictions/
+
+       3. Re-run the pipeline to benefit from improved ponente matching:
+           python -m detection ../downloads --range 226-260 --skip-llm
+
+       Step 3 is optional but recommended. The expanded justice list improves
+       both fuzzy ponente correction (ocr_correction.py) and the ponente_known
+       confidence check (confidence.py), which can shift borderline cases from
+       low to high confidence.
+   ```
+
+2. Update section 8.C to mark it as **implemented** — replace the suggestion text with a reference to section 9:
+
+   ```
+   C. Expand KNOWN_JUSTICES dynamically from processed volumes
+
+       IMPLEMENTED — see Section 9. The pipeline now loads justice names from
+       justices.json (pre-seeded with 11 Vol 226 justices). After each batch
+       run, use `python -m detection.harvest_justices` to extract new names
+       from high-confidence cases and add them to the registry.
+   ```
+
+3. Add `justices.json` to the "Internal constants" list in section 5:
+
+   ```
+   KNOWN_JUSTICES (justices.json, loaded by justice_registry.py)
+       List of known justice surnames for fuzzy ponente matching.
+       Pre-seeded with Vol 226 justices (1986 court). Grows dynamically
+       via harvest_justices.py after each batch run.
+   ```
+   Remove the old entry that references `ocr_correction.py`.
+
+**Constraints:**
+- Keep the existing section numbering consistent (renumber if needed)
+- The harvest workflow must mention the re-run step for already-processed volumes
+- Do NOT use Unicode characters
+- Keep the same formatting style as the rest of Instructions.txt (indented code blocks, dashed section headers)
+
+---
+
+### KJ Dependency Graph
+
+```
+KJ-1 (seed + loader + wiring) ---- KJ-2 (harvest CLI) ---- KJ-3 (docs)
+```
+
+KJ-1 must be completed first. KJ-2 depends on KJ-1. KJ-3 depends on KJ-2.
+
+---
+
+### KJ File Tree
+
+```
+regex_improve/
+├── detection/
+│   ├── justices.json              # KJ-1 (new, committed to git)
+│   ├── justice_registry.py        # KJ-1 (new)
+│   ├── harvest_justices.py        # KJ-2 (new)
+│   ├── ocr_correction.py          # KJ-1 (modified: load from registry)
+│   ├── confidence.py              # KJ-1 (no changes needed)
+│   ├── pipeline.py                # KJ-1 (no changes needed)
+│   ├── Instructions.txt           # KJ-3 (modified)
+│   └── ... (other existing files)
+```
+
+---
+
 ## Python Dependencies to Add
 
 Add to `requirements.txt`:
@@ -1107,10 +1437,14 @@ regex_improve/
 │   ├── boundary_fsm.py          # T2
 │   ├── section_extractor.py     # T3
 │   ├── scorer.py                # T4
-│   ├── ocr_correction.py        # T5
+│   ├── ocr_correction.py        # T5 (KJ-1: loads from registry)
 │   ├── confidence.py            # T6
 │   ├── llm_fallback.py          # T7
 │   ├── pipeline.py              # T8
+│   ├── justices.json            # KJ-1 (committed, grows via harvest)
+│   ├── justice_registry.py      # KJ-1
+│   ├── harvest_justices.py      # KJ-2
+│   ├── Instructions.txt         # KJ-3 (updated)
 │   └── tests/
 │       ├── __init__.py          # T9
 │       └── test_pipeline.py     # T9

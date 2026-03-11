@@ -164,6 +164,19 @@ class SidePanel(tk.Frame):
         )
         self.delete_btn.pack()
 
+        # Preview pane for full annotation text
+        tk.Label(ann_frame, text="Preview:", anchor=tk.W).pack(fill=tk.X, pady=(5, 0))
+        self.preview_text = tk.Text(
+            ann_frame,
+            height=4,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            relief=tk.SUNKEN,
+            bd=1,
+            font=("TkDefaultFont", 9)
+        )
+        self.preview_text.pack(fill=tk.X, pady=(2, 0))
+
     def _create_label_buttons(self):
         """Create the label assignment buttons.
 
@@ -261,6 +274,8 @@ class SidePanel(tk.Frame):
         for item in self.annotation_tree.get_children():
             self.annotation_tree.delete(item)
         
+        self._update_preview("")
+
         if not case or not case.annotations:
             return
         
@@ -317,10 +332,20 @@ class SidePanel(tk.Frame):
         try:
             item_text = self.annotation_tree.item(item_id, "text")
             annotation_index = int(item_text)
+            if self._current_case and 0 <= annotation_index < len(self._current_case.annotations):
+                ann = self._current_case.annotations[annotation_index]
+                self._update_preview(ann.text)
             if self.on_annotation_click:
                 self.on_annotation_click(annotation_index)
         except (ValueError, TypeError):
             pass
+
+    def _update_preview(self, text: str):
+        """Update the preview pane with full annotation text."""
+        self.preview_text.config(state=tk.NORMAL)
+        self.preview_text.delete("1.0", tk.END)
+        self.preview_text.insert("1.0", text)
+        self.preview_text.config(state=tk.DISABLED)
 
     def _on_delete_selected(self):
         """Handle Delete Selected button click."""
