@@ -4,7 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Optional
-from gui.models import AnnotationStore
+from gui.models import Annotation, AnnotationStore, Case, VolumeData
 
 
 class FileIO:
@@ -87,3 +87,90 @@ class FileIO:
                 except:
                     pass
             raise e
+
+
+def load_predictions(path: Path, loader) -> AnnotationStore:
+    """Load a pipeline predicted.json and convert to GUI AnnotationStore format.
+
+    Args:
+        path: Path to the predicted.json file
+        loader: VolumeLoader instance (already loaded with the volume text)
+               Used to compute start_line/end_line from char offsets.
+
+    Returns:
+        AnnotationStore with converted predictions
+    """
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    store = AnnotationStore()
+
+    # Handle pipeline format: volumes is a list
+    volumes_raw = data.get("volumes", [])
+
+    if isinstance(volumes_raw, list):
+        # Pipeline format: list of volume dicts
+        for vol_dict in volumes_raw:
+            vol_name = vol_dict.get("volume_name", "")
+            # Ensure .txt extension
+            if not vol_name.endswith(".txt"):
+                vol_name = vol_name + ".txt"
+
+            volume_data = VolumeData(volume=vol_name)
+
+            for case_dict in vol_dict.get("cases", []):
+                case_id = case_dict.get("case_id", "unknown")
+                status = case_dict.get("status", "in_progress")
+                # Map "auto_extracted" to "in_progress" for GUI review
+                if status == "auto_extracted":
+                    status = "in_progress"
+                notes = case_dict.get("notes", "")
+
+                case = Case(case_id=case_id, status=status, notes=notes)
+
+                for ann_dict in case_dict.get("annotations", []):
+                    start_char = ann_dict.get("start_char", 0)
+                    end_char = ann_dict.get("end_char", 0)
+
+                    # Compute start_line/end_line from char offsets using loader
+                    start_line = 1
+                    end_line = 1
+                    start_page = ann_dict.get("start_page") or 0
+                    end_page = ann_dict.get("end_page") or 0
+
+                    if loader and hasattr(loader, 'char_to_line'):
+                        try:
+                            start_line = loader.char_to_line(start_char)
+                            end_line = loader.char_to_line(max(start_char, end_char - 1))
+                        except (ValueError, IndexError):
+                            pass
+                        try:
+                            if start_page == 0:
+                                start_page = loader.get_page(start_char)
+                            if end_page == 0:
+                                end_page = loader.get_page(max(start_char, end_char - 1))
+                        except (ValueError, IndexError):
+                            pass
+
+                    annotation = Annotation(
+                        label=ann_dict.get("label", ""),
+                        text=ann_dict.get("text", ""),
+                        group=ann_dict.get("group"),
+                        start_char=start_char,
+                        end_char=end_char,
+                        start_line=start_line,
+                        end_line=end_line,
+                        start_page=start_page,
+                        end_page=end_page
+                    )
+                    case.annotations.append(annotation)
+
+                volume_data.cases.append(case)
+
+            store.volumes[vol_name] = volume_data
+
+    elif isinstance(volumes_raw, dict):
+        # Already in GUI format, use normal loading
+        return AnnotationStore.from_dict(data)
+
+    return store

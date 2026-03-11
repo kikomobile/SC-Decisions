@@ -83,7 +83,6 @@ def correct_date(text: str) -> Tuple[str, List[Correction]]:
     
     # Fix period-for-comma pattern: Month DD. YYYY → Month DD, YYYY
     month_pattern = r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}\.\s+\d{4}"
-    import re
     match = re.search(month_pattern, text, re.IGNORECASE)
     if match:
         # Replace the period with comma
@@ -334,7 +333,7 @@ if __name__ == "__main__":
         if func_name == "correct_case_number":
             result, corrections = correct_case_number(input_text)
             assert result == expected, f"{func_name}: {input_text} -> {result}, expected {expected}"
-            print(f"✓ {func_name}: '{input_text}' -> '{result}'")
+            print(f"[OK] {func_name}: '{input_text}' -> '{result}'")
             if corrections:
                 print(f"  Correction: {corrections[0].rule}")
     
@@ -349,7 +348,7 @@ if __name__ == "__main__":
         if func_name == "correct_division":
             result, corrections = correct_division(input_text)
             assert result == expected, f"{func_name}: {input_text} -> {result}, expected {expected}"
-            print(f"✓ {func_name}: '{input_text}' -> '{result}'")
+            print(f"[OK] {func_name}: '{input_text}' -> '{result}'")
             if corrections:
                 print(f"  Correction: {corrections[0].rule}")
     
@@ -364,7 +363,7 @@ if __name__ == "__main__":
         if func_name == "correct_end_decision":
             result, corrections = correct_end_decision(input_text)
             assert result == expected, f"{func_name}: {input_text} -> {result}, expected {expected}"
-            print(f"✓ {func_name}: '{input_text}' -> '{result}'")
+            print(f"[OK] {func_name}: '{input_text}' -> '{result}'")
             if corrections:
                 print(f"  Correction: {corrections[0].rule}")
     
@@ -379,7 +378,7 @@ if __name__ == "__main__":
         if func_name == "correct_ponente":
             result, corrections = correct_ponente(input_text)
             assert result == expected, f"{func_name}: {input_text} -> {result}, expected {expected}"
-            print(f"✓ {func_name}: '{input_text}' -> '{result}'")
+            print(f"[OK] {func_name}: '{input_text}' -> '{result}'")
             if corrections:
                 print(f"  Correction: {corrections[0].rule}")
     

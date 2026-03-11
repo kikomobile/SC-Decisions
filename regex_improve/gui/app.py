@@ -7,7 +7,7 @@ from gui.constants import SAMPLES_DIR, ANNOTATION_FILE, LABELS, LABEL_MAP
 from gui.volume_loader import VolumeLoader
 from gui.text_panel import TextPanel
 from gui.highlight_manager import HighlightManager
-from gui.file_io import FileIO
+from gui.file_io import FileIO, load_predictions
 from gui.models import AnnotationStore, VolumeData, Case
 from gui.side_panel import SidePanel
 from gui.exporters import JsonExporter, MarkdownExporter
@@ -85,6 +85,7 @@ class AnnotationApp:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Open Volume... (Ctrl+O)", command=self.open_volume)
+        file_menu.add_command(label="Import Predictions...", command=self.import_predictions)
         file_menu.add_command(label="Save (Ctrl+S)", command=self._save_annotations)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
@@ -244,6 +245,99 @@ class AnnotationApp:
                 self.highlight_manager = None
                 self.volume_data = None
                 self._update_menu_state()
+
+    def import_predictions(self):
+        """File > Import Predictions handler.
+        Load a pipeline predicted.json and merge into the current volume's annotations.
+        Requires a volume to be open first (need the VolumeLoader for line number computation).
+        """
+        if not self.loader or not self.current_file:
+            messagebox.showwarning(
+                "No Volume Open",
+                "Open a volume file first, then import predictions for that volume."
+            )
+            return
+
+        file_path = filedialog.askopenfilename(
+            title="Import Predictions",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            pred_store = load_predictions(Path(file_path), self.loader)
+
+            # Find the volume data matching the currently open volume
+            volume_name = self.current_file.name
+            pred_volume = pred_store.get_volume(volume_name)
+
+            if pred_volume is None:
+                # Try without .txt extension match
+                available = list(pred_store.volumes.keys())
+                messagebox.showwarning(
+                    "Volume Not Found",
+                    f"No predictions found for '{volume_name}' in the imported file.\n\n"
+                    f"Available volumes: {', '.join(available) if available else 'none'}"
+                )
+                return
+
+            # Confirm before replacing
+            existing_cases = len(self.volume_data.cases) if self.volume_data else 0
+            incoming_cases = len(pred_volume.cases)
+
+            result = messagebox.askyesno(
+                "Import Predictions",
+                f"Import {incoming_cases} predicted cases for {volume_name}?\n\n"
+                f"This will REPLACE the current {existing_cases} cases for this volume.\n"
+                f"(Other volumes in annotations.json are not affected.)"
+            )
+
+            if not result:
+                return
+
+            # Replace volume data in the store
+            self.store.volumes[volume_name] = pred_volume
+            self.volume_data = pred_volume
+
+            # Clear existing highlights from text widget
+            for tag in self.text_panel.text.tag_names():
+                if tag.startswith("highlight_"):
+                    self.text_panel.text.tag_remove(tag, "1.0", "end")
+            
+            # Recreate highlight manager with new data
+            self.highlight_manager = HighlightManager(
+                text_panel=self.text_panel,
+                loader=self.loader,
+                store=self.store,
+                volume_data=self.volume_data,
+                root=self.root,
+                on_change=self._on_annotation_change
+            )
+
+            # Apply highlights for imported annotations
+            self.highlight_manager.apply_all_highlights()
+
+            # Save to annotations.json
+            if self.file_io:
+                self.file_io.save(self.store)
+
+            # Update side panel and status bar
+            self._update_side_panel_display()
+            self._update_status_bar_cases()
+
+            messagebox.showinfo(
+                "Import Complete",
+                f"Imported {incoming_cases} cases for {volume_name}.\n"
+                f"Annotations saved to annotations.json."
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Import Error",
+                f"Failed to import predictions:\n\n{str(e)}"
+            )
 
     def _apply_page_marker_styling(self):
         """Apply gray styling to page marker lines."""

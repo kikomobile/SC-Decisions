@@ -24,6 +24,9 @@ __pycache__/
 # Processing manifest
 processing_manifest.json
 
+# Annotation working file
+annotations.json
+
 # Exports (Notebook 04)
 exports/
 

@@ -227,7 +227,6 @@ class CaseBoundaryDetector:
         if date_pos == -1:
             # Fallback: take everything from opening bracket to last period before date-ish text
             # Look for patterns like ". May" or ", May"
-            import re
             date_pattern = r'[\.\s,]+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
             match = re.search(date_pattern, bracket_line, re.IGNORECASE)
             if match:
@@ -263,7 +262,6 @@ class CaseBoundaryDetector:
         pos = line_text.find(date_text)
         if pos == -1:
             # Try to find date by looking for month names
-            import re
             month_pattern = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}'
             match = re.search(month_pattern, line_text, re.IGNORECASE)
             if match:
@@ -328,14 +326,14 @@ if __name__ == "__main__":
     
     # Assert: 72 boundaries found
     assert len(boundaries) == 72, f"Expected 72 boundaries, found {len(boundaries)}"
-    print("✓ 72 boundaries found")
+    print("[OK] 72 boundaries found")
     
     # Assert: first boundary at line 421 with case_number text containing "50545"
     first_boundary = boundaries[0]
     assert first_boundary.start_line == 421, f"First boundary at line {first_boundary.start_line}, expected 421"
     assert any("50545" in cn.text for cn in first_boundary.case_numbers), \
         f"Case number 50545 not found in first boundary: {[cn.text for cn in first_boundary.case_numbers]}"
-    print("✓ First boundary at line 421 with case_number containing '50545'")
+    print("[OK] First boundary at line 421 with case_number containing '50545'")
     
     # Assert: boundary near line 18707 has 2 case_numbers (consolidated)
     # Find boundary with start_line closest to 18707
@@ -348,7 +346,7 @@ if __name__ == "__main__":
     assert target_boundary is not None, "No boundary found near line 18707"
     assert len(target_boundary.case_numbers) >= 2, \
         f"Expected at least 2 case_numbers near line 18707, found {len(target_boundary.case_numbers)}"
-    print(f"✓ Boundary near line {target_boundary.start_line} has {len(target_boundary.case_numbers)} case_numbers")
+    print(f"[OK] Boundary near line {target_boundary.start_line} has {len(target_boundary.case_numbers)} case_numbers")
     
     # Assert: boundary at line 2902 detects `{Adm. Matter...}` bracket
     # Find boundary around line 2902
@@ -363,6 +361,6 @@ if __name__ == "__main__":
     has_adm_matter = any("Adm. Matter" in cn.text or "Adm. Matter" in cn.full_bracket_text 
                          for cn in adm_boundary.case_numbers)
     assert has_adm_matter, f"No Adm. Matter bracket found in boundary at line {adm_boundary.start_line}"
-    print(f"✓ Boundary at line {adm_boundary.start_line} has Adm. Matter bracket")
+    print(f"[OK] Boundary at line {adm_boundary.start_line} has Adm. Matter bracket")
     
     print("\nAll tests passed!")

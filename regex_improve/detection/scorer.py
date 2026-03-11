@@ -10,6 +10,7 @@ import argparse
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, field
 import sys
+from pathlib import Path
 
 
 # Constants
@@ -353,8 +354,8 @@ def match_cases(gt_cases: List[Case], pred_cases: List[Case]) -> List[Tuple[Case
 
 
 def score_volume(
-    predicted_path: str,
-    ground_truth_path: str,
+    predicted_path: str | Path,
+    ground_truth_path: str | Path,
     iou_threshold: float = 0.8
 ) -> Dict[str, Any]:
     """Main scoring function.

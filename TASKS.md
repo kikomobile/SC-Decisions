@@ -529,9 +529,10 @@ def correct_annotations(annotations: list[dict]) -> tuple[list[dict], list[Corre
 
 ### T6: Confidence Scorer
 
-**Status:** TODO
+**Status:** DONE
+**Review notes:** All 7 weighted checks implemented per spec. Handles ground truth quirks: (a) stacked annotations (identical spans, e.g. start_of_case + division) are exempt from overlap check, (b) annotations at the same start_char are grouped and compared using minimum order index (fixes division->case_number false positive). Ponente check returns 0.5 fallback when rapidfuzz unavailable. Test block: ground truth avg=1.0, broken case=0.333 (<0.5), score_all_cases splits correctly. Also fixed redundant `import re` in ocr_correction.py (T5 nit).
 **Depends on:** T5 (imports KNOWN_JUSTICES)
-**Files to create:**
+**Files created:**
 - `regex_improve/detection/confidence.py`
 
 **Description:**
@@ -593,7 +594,8 @@ Split cases into high-confidence and low-confidence lists based on threshold.
 
 ### T7: LLM Fallback (DeepSeek V3)
 
-**Status:** TODO
+**Status:** DONE
+**Review notes:** All spec requirements met. `get_client()` reads `DEEPSEEK_API_KEY` from env with clear `ValueError` if missing. `BudgetTracker` with correct rates (0.27e-6 input, 1.10e-6 output), budget check before API calls, returns `None` on exhaustion (no raise). `_call_with_retry` with exponential backoff (1s, 2s, 4s). Temperature 0.0 and `response_format={"type": "json_object"}` enforced. Logs every API call with case_id, tokens, cost. Extra helpers added: `convert_llm_labels_to_annotations` (case-relative→volume-relative offset conversion), `determine_labels_to_re_extract` (maps failed confidence checks to label list) — both useful for T8. Test block validates BudgetTracker, label determination, annotation conversion, and invalid input handling. Actual API test gated on `DEEPSEEK_API_KEY` presence.
 **Depends on:** T6
 **Files to create:**
 - `regex_improve/detection/llm_fallback.py`
@@ -678,7 +680,8 @@ Rules:
 
 ### T8: Pipeline Orchestrator + CLI
 
-**Status:** TODO
+**Status:** DONE
+**Review notes:** Full pipeline runs end-to-end on Volume 226: 72 cases detected, 12 OCR corrections, all 72 high-confidence at 0.7 threshold. LLM integration verified — single API call to DeepSeek returned correct `parties` and `ponente` for case 0 (3190 input, 145 output tokens, $0.001). CLI supports single + batch modes with all spec flags (--budget, --threshold, --range, --score, --skip-llm, --json). Output JSON is format_version=2 with status="auto_extracted". Known minor issues: (a) `process_batch` budget not truly shared — each `process_volume` creates its own BudgetTracker, (b) annotation type mixes Annotation dataclass and dicts after OCR correction step — works at runtime but type hints are inconsistent. Neither affects single-volume processing.
 **Depends on:** T1, T2, T3, T4, T5, T6, T7
 **Files to create:**
 - `regex_improve/detection/pipeline.py`
@@ -742,7 +745,8 @@ Ensure `regex_improve/` is on sys.path for imports to work.
 
 ### T9: Integration Tests
 
-**Status:** TODO
+**Status:** DONE
+**Review notes:** All 9 tests pass in 1.59s. Covers: case count (72), first case start (line 421, SECOND DIVISION), required labels (start_of_case, case_number, doc_type on all 72), consolidated case detection (group > 0), overall F1 >= 0.90, per-label F1 minimums (11 labels checked), output format (format_version=2, volumes, case structure, annotation fields), OCR corrections (12 applied). LLM integration test properly gated with `@unittest.skipUnless(DEEPSEEK_API_KEY)` — ran and passed since key was set. Cleanup in tearDownClass via shutil.rmtree. Minor nit: test_ocr_corrections_applied doesn't hard-assert the comma-to-period fix (prints note instead) — acceptable since the specific OCR error may not always be present.
 **Depends on:** T8
 **Files to create:**
 - `regex_improve/detection/tests/__init__.py`
