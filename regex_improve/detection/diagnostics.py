@@ -169,8 +169,8 @@ def check_span_lengths(cases: List[Dict]) -> DiagnosticCheck:
     
     Thresholds:
         0 outliers -> ok: "Span lengths normal (parties: mean {p_mean:.0f} chars, votes: mean {v_mean:.0f} chars)"
-        1-3 outliers -> warning: "{count} cases with outlier span lengths" + list the case_ids
-        > 3 outliers -> critical: "{count} cases with outlier span lengths -- extraction boundaries may be wrong"
+        <= 10% outliers -> warning: "{count} cases ({pct:.0f}%) with outlier span lengths" + list the case_ids
+        > 10% outliers -> critical: "{count} cases ({pct:.0f}%) with outlier span lengths -- extraction boundaries may be wrong"
     """
     if not cases:
         return DiagnosticCheck(
@@ -249,22 +249,32 @@ def check_span_lengths(cases: List[Dict]) -> DiagnosticCheck:
     parties_mean_val = statistics.mean(parties_lengths) if parties_lengths else 0.0
     votes_mean_val = statistics.mean(votes_lengths) if votes_lengths else 0.0
     
+    # Calculate outlier percentage
+    total_cases = len(cases)
+    outlier_pct = (len(outliers) / total_cases * 100) if total_cases > 0 else 0
+    
     if not outliers:
         severity = "ok"
         message = f"Span lengths normal (parties: mean {parties_mean_val:.0f} chars, votes: mean {votes_mean_val:.0f} chars)"
-    elif len(outliers) <= 3:
+    elif outlier_pct <= 10.0:
         severity = "warning"
         outlier_cases = sorted(set(o["case_id"] for o in outliers))
-        message = f"{len(outliers)} cases with outlier span lengths: {', '.join(outlier_cases)}"
+        # Show up to 5 case IDs
+        shown = outlier_cases[:5]
+        if len(outlier_cases) > 5:
+            message = f"{len(outliers)} cases ({outlier_pct:.0f}%) with outlier span lengths: {', '.join(shown)} and {len(outlier_cases) - 5} more"
+        else:
+            message = f"{len(outliers)} cases ({outlier_pct:.0f}%) with outlier span lengths: {', '.join(shown)}"
     else:
         severity = "critical"
         outlier_cases = sorted(set(o["case_id"] for o in outliers))
         # Show first 5 case IDs only
+        shown = outlier_cases[:5]
+        message = f"{len(outliers)} cases ({outlier_pct:.0f}%) with outlier span lengths -- extraction boundaries may be wrong"
         if len(outlier_cases) > 5:
-            shown = outlier_cases[:5]
-            message = f"{len(outliers)} cases with outlier span lengths -- extraction boundaries may be wrong: {', '.join(shown)} and {len(outlier_cases) - 5} more"
+            message += f": {', '.join(shown)} and {len(outlier_cases) - 5} more"
         else:
-            message = f"{len(outliers)} cases with outlier span lengths -- extraction boundaries may be wrong: {', '.join(outlier_cases)}"
+            message += f": {', '.join(shown)}"
     
     return DiagnosticCheck(
         name="span_lengths",
@@ -275,7 +285,8 @@ def check_span_lengths(cases: List[Dict]) -> DiagnosticCheck:
             "parties_mean": parties_mean_val,
             "votes_mean": votes_mean_val,
             "parties_count": len(parties_lengths),
-            "votes_count": len(votes_lengths)
+            "votes_count": len(votes_lengths),
+            "outlier_percentage": outlier_pct
         }
     )
 
@@ -399,24 +410,24 @@ def run_diagnostics(cases: List[Dict], volume_text: Optional[str] = None,
     return report
 
 
-# Near-miss patterns for DIAG-2
+# Near-miss patterns for DIAG-2 (tightened to eliminate body text false positives)
 RE_NEAR_DIVISION = re.compile(
-    r'(?:DIVISION|EN\s*BANC)',
+    r'^\s*(?:(?:FIRST|SECOND|THIRD)\s+DIVISION|EN\s*BANC)\s*$',
     re.IGNORECASE
 )
 
 RE_NEAR_BRACKET = re.compile(
-    r'(?:G\.?\s*R\.?\s*No|A\.?\s*M\.?\s*No)',
+    r'^[\[\(\{1I\s]{0,5}(?:G\.?\s*R\.?\s*No|A\.?\s*M\.?\s*No)',
     re.IGNORECASE
 )
 
 RE_NEAR_SO_ORDERED = re.compile(
-    r'SO\s*ORDERED',
+    r'^\s*SO\s*ORDERED\s*[.,;]?\s*$',
     re.IGNORECASE
 )
 
 RE_NEAR_DOC_TYPE = re.compile(
-    r'\b(?:D\s*E\s*C\s*I\s*S\s*I\s*O\s*N|R\s*E\s*S\s*O\s*L\s*U\s*T\s*I\s*O\s*N)\b',
+    r'^\s*(?:D\s*E\s*C\s*I\s*S\s*I\s*O\s*N|R\s*E\s*S\s*O\s*L\s*U\s*T\s*I\s*O\s*N)\s*$',
     re.IGNORECASE
 )
 
@@ -439,30 +450,21 @@ def find_near_misses(volume_text: str, matched_lines: Set[int]) -> List[Dict[str
         if line_num in matched_lines:
             continue
         
-        # Skip long lines (likely body text, not structural)
+        # Skip very long lines (body text, not structural)
         if len(line) > 200:
             continue
         
-        # Check each near-miss pattern
+        # Check each near-miss pattern (order: most specific first)
         pattern_matched = None
         
-        if RE_NEAR_DIVISION.search(line):
-            # Additional filter: ignore lines that are part of "PHILIPPINE REPORTS" headers
-            if "PHILIPPINE REPORTS" not in line.upper():
-                pattern_matched = "division"
-        
-        elif RE_NEAR_BRACKET.search(line):
-            # Additional filter: bracket lines are typically short
-            if len(line) <= 150:
-                pattern_matched = "bracket"
-        
-        elif RE_NEAR_SO_ORDERED.search(line):
+        if RE_NEAR_BRACKET.match(line):
+            pattern_matched = "bracket"
+        elif RE_NEAR_DIVISION.match(line):
+            pattern_matched = "division"
+        elif RE_NEAR_SO_ORDERED.match(line):
             pattern_matched = "so_ordered"
-        
-        elif RE_NEAR_DOC_TYPE.search(line):
-            # Additional filter: doc type lines are typically short
-            if len(line) <= 100:
-                pattern_matched = "doc_type"
+        elif RE_NEAR_DOC_TYPE.match(line):
+            pattern_matched = "doc_type"
         
         if pattern_matched:
             near_misses.append({
@@ -566,16 +568,17 @@ if __name__ == "__main__":
     
     assert report3.worst_severity == "warning", "Empty case list should be warning"
     
-    # Test 4: Near-miss detection
-    print("\nTest 4: Near-miss detection...")
-    volume_text = """Line 1: EN BANC
-Line 2: DIVISION
-Line 3: G.R. No. 12345
-Line 4: SO ORDERED
-Line 5: DECISION
-Line 6: Some regular text here
-Line 7: A. M. No. 67890
-Line 8: RESOLUTION"""
+    # Test 4: Near-miss detection with tightened patterns
+    print("\nTest 4: Near-miss detection with tightened patterns...")
+    volume_text = """EN BANC
+FIRST DIVISION
+[G.R. No. 12345]
+SO ORDERED.
+DECISION
+Some regular text here with G.R. No. 99999 in the middle
+A. M. No. 67890
+RESOLUTION
+SECOND DIVISION"""
     
     matched_lines = {1, 3, 5}  # Lines 1, 3, 5 already matched
     near_misses = find_near_misses(volume_text, matched_lines)
@@ -584,8 +587,12 @@ Line 8: RESOLUTION"""
     for nm in near_misses:
         print(f"    Line {nm['line_num']}: [{nm['pattern']}] {nm['text']}")
     
-    # Line 2 (DIVISION), Line 4 (SO ORDERED), Line 7 (A. M. No.), Line 8 (RESOLUTION) should be near-misses
-    # But line 2 might be filtered out if it's too similar to line 1
-    assert len(near_misses) >= 2, f"Expected at least 2 near-misses, got {len(near_misses)}"
+    # Line 2 (FIRST DIVISION), Line 4 (SO ORDERED.), Line 7 (A. M. No.), Line 8 (RESOLUTION), Line 9 (SECOND DIVISION) should be near-misses
+    # Line 6 should NOT match because G.R. No. is in the middle of the line (not at start)
+    # Line 2 and 9 should match division pattern
+    # Line 4 should match so_ordered pattern
+    # Line 7 should match bracket pattern
+    # Line 8 should match doc_type pattern
+    assert len(near_misses) >= 4, f"Expected at least 4 near-misses, got {len(near_misses)}"
     
     print("\nAll tests passed!")

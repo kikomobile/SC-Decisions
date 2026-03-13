@@ -112,6 +112,8 @@ def process_volume(
     
     # Collect matched line numbers for near-miss detection
     matched_lines = set()
+    
+    # From boundary FSM: division headers and bracket lines
     for boundary in boundaries:
         matched_lines.add(boundary.start_line)  # division line
         for cn in boundary.case_numbers:
@@ -120,6 +122,31 @@ def process_volume(
             end_line = preprocessor.loader.char_to_line(cn.end_char - 1)
             for line_num in range(start_line, end_line + 1):
                 matched_lines.add(line_num)
+    
+    # From section extractor: all annotation lines
+    for case in extracted_cases:
+        for ann in case.annotations:
+            ann_start_line = preprocessor.loader.char_to_line(ann.start_char)
+            ann_end_line = preprocessor.loader.char_to_line(ann.end_char - 1)
+            # For position labels (start_of_case, end_decision, etc.), add exact line
+            # For span labels (parties, counsel, votes), add the start line only
+            # to avoid over-excluding body text within the span
+            if ann.label in ("start_of_case", "end_of_case", "start_decision",
+                             "end_decision", "start_syllabus", "end_syllabus",
+                             "start_opinion", "end_opinion", "division",
+                             "doc_type", "ponente"):
+                # Position/header labels: add all lines in the span
+                for line_num in range(ann_start_line, ann_end_line + 1):
+                    matched_lines.add(line_num)
+            elif ann.label in ("case_number", "date"):
+                # Short labels: add all lines
+                for line_num in range(ann_start_line, ann_end_line + 1):
+                    matched_lines.add(line_num)
+            else:
+                # Long span labels (parties, counsel, votes, syllabus content):
+                # Only add the first and last line to avoid masking body text issues
+                matched_lines.add(ann_start_line)
+                matched_lines.add(ann_end_line)
     
     # Step 4: OCR correction
     logger.info("Step 4: Applying OCR corrections...")

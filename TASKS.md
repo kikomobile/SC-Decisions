@@ -1224,9 +1224,13 @@ volume_result = {
 
 ```
 DIAG-1 (statistical checks)  ---- DIAG-2 (near-miss patterns) ---- DIAG-3 (pipeline wiring)
+                                                                          |
+                                                              DIAG-FIX-1 (calibration)
+                                                              DIAG-FIX-2 (matched_lines)
 ```
 
 DIAG-1 must be completed first. DIAG-2 adds to DIAG-1's module. DIAG-3 wires both into pipeline.
+DIAG-FIX-1 and DIAG-FIX-2 are independent of each other but both depend on DIAG-3.
 
 ---
 
@@ -1235,9 +1239,265 @@ DIAG-1 must be completed first. DIAG-2 adds to DIAG-1's module. DIAG-3 wires bot
 ```
 regex_improve/
 ├── detection/
-│   ├── diagnostics.py          # DIAG-1 + DIAG-2 (new)
-│   ├── pipeline.py             # DIAG-3 (modified)
+│   ├── diagnostics.py          # DIAG-1 + DIAG-2 (new), DIAG-FIX-1 (modified)
+│   ├── pipeline.py             # DIAG-3 (modified), DIAG-FIX-2 (modified)
 │   └── ... (other existing files)
+```
+
+---
+
+## Diagnostics Calibration Fixes (from Phase 1 Batch Run)
+
+Phase 1 batch run (735 volumes, 226-960) revealed severely miscalibrated diagnostics: 149 critical, 570 warning, only 16 ok. Volume 226 (the ground truth basis volume, 0.926 mean confidence, 100% required labels) was rated **critical**. The diagnostics are producing false alarms, making them useless for identifying genuinely problematic volumes.
+
+**Root causes:**
+1. `span_lengths` check uses fixed count thresholds (>3 = critical) that don't scale with volume size
+2. Near-miss patterns match body text far too aggressively (834 false positives on Vol 226 alone)
+3. `matched_lines` set is incomplete — only boundary FSM lines are excluded, not section extractor matches
+
+**Validation:** After fixes, re-run on Volume 226 and verify it gets `ok`. Check batch_summary.log: critical count should drop significantly, ok count should rise to be the majority for well-performing volumes.
+
+---
+
+### DIAG-FIX-1: Calibrate Thresholds and Tighten Near-Miss Patterns
+
+**Status:** DONE
+**Depends on:** DIAG-3
+**Files to modify:**
+- `regex_improve/detection/diagnostics.py`
+
+**Description:**
+Fix the span_lengths severity thresholds and tighten all 4 near-miss regex patterns to eliminate body text false positives.
+
+#### Part A: Fix `check_span_lengths` thresholds
+
+**Current bug (line 252-267):** Fixed count thresholds:
+```python
+elif len(outliers) <= 3:    # warning
+else:                       # critical (>3 outliers)
+```
+A 72-case volume with 5 natural outliers (7%) hits `critical`. A 15-case volume with 4 outliers (27%) also hits `critical` — even though the second case is genuinely worse.
+
+**Fix:** Replace fixed count thresholds with percentage-based:
+
+```python
+# Calculate outlier percentage
+total_cases = len(cases)
+outlier_pct = (len(outliers) / total_cases * 100) if total_cases > 0 else 0
+
+if not outliers:
+    severity = "ok"
+    message = f"Span lengths normal (parties: mean {parties_mean_val:.0f} chars, votes: mean {votes_mean_val:.0f} chars)"
+elif outlier_pct <= 10.0:
+    severity = "warning"
+    outlier_cases = sorted(set(o["case_id"] for o in outliers))
+    message = f"{len(outliers)} cases ({outlier_pct:.0f}%) with outlier span lengths: {', '.join(outlier_cases[:5])}"
+else:
+    severity = "critical"
+    outlier_cases = sorted(set(o["case_id"] for o in outliers))
+    shown = outlier_cases[:5]
+    message = f"{len(outliers)} cases ({outlier_pct:.0f}%) with outlier span lengths -- extraction boundaries may be wrong"
+    if len(outlier_cases) > 5:
+        message += f": {', '.join(shown)} and {len(outlier_cases) - 5} more"
+    else:
+        message += f": {', '.join(shown)}"
+```
+
+This means Vol 226's 5/72 (7%) → `warning` instead of `critical`.
+
+#### Part B: Tighten `RE_NEAR_DOC_TYPE`
+
+**Current bug:** Matches "DECISION" or "RESOLUTION" as a word anywhere in lines ≤ 100 chars. Body text like `"This is a petition to review the decision of the Employees'"` (84 chars) matches.
+
+**Fix:** Replace the pattern and filter. A real doc_type header line is SHORT and contains ONLY the keyword (possibly with spacing/punctuation):
+
+1. Replace `RE_NEAR_DOC_TYPE`:
+   ```python
+   RE_NEAR_DOC_TYPE = re.compile(
+       r'^\s*(?:D\s*E\s*C\s*I\s*S\s*I\s*O\s*N|R\s*E\s*S\s*O\s*L\s*U\s*T\s*I\s*O\s*N)\s*$',
+       re.IGNORECASE
+   )
+   ```
+   Key changes: `^` anchor and `$` anchor — line must be ONLY the keyword (with optional whitespace). This eliminates all body text matches.
+
+2. Update the filter in `find_near_misses` for doc_type: remove the `len(line) <= 100` check (the regex itself is now strict enough).
+
+#### Part C: Tighten `RE_NEAR_BRACKET`
+
+**Current bug:** Matches "G.R. No." or "A.M. No." anywhere in lines ≤ 150 chars. Case citations in body text like `"Employees' Compensation Commission (G.R. No. L-45662,"` match.
+
+**Fix:** Require the G.R./A.M. pattern near the START of the line (within first 15 chars), since case bracket lines always start with `[G.R. No.` or similar:
+
+1. Replace `RE_NEAR_BRACKET`:
+   ```python
+   RE_NEAR_BRACKET = re.compile(
+       r'^[\[\(\{1I\s]{0,5}(?:G\.?\s*R\.?\s*No|A\.?\s*M\.?\s*No)',
+       re.IGNORECASE
+   )
+   ```
+   This allows 0-5 leading chars (bracket, OCR noise, whitespace) before the case number prefix. Body text citations mid-sentence will NOT match.
+
+2. Remove the `len(line) <= 150` filter for bracket (the anchored regex is now sufficient).
+
+#### Part D: Tighten `RE_NEAR_DIVISION`
+
+**Current bug:** Matches "DIVISION" anywhere in the line. Court names like `"APPELLATE COURT (Third Civil Cases Division),"` match.
+
+**Fix:** Only match lines where the division text is the dominant content:
+
+1. Replace `RE_NEAR_DIVISION`:
+   ```python
+   RE_NEAR_DIVISION = re.compile(
+       r'^\s*(?:(?:FIRST|SECOND|THIRD)\s+DIVISION|EN\s*BANC)\s*$',
+       re.IGNORECASE
+   )
+   ```
+   Anchored to start/end, requires a specific division name. This eliminates court name matches.
+
+2. Remove the `"PHILIPPINE REPORTS" not in line.upper()` filter (no longer needed with the strict regex).
+
+#### Part E: Tighten `RE_NEAR_SO_ORDERED`
+
+**Current behavior:** Matches "SO ORDERED" anywhere. This is actually reasonable, but many matches are legitimate SO ORDERED lines that the pipeline DID match — they're just not in `matched_lines` (fixed by DIAG-FIX-2). For now, add a line-anchored version:
+
+1. Replace `RE_NEAR_SO_ORDERED`:
+   ```python
+   RE_NEAR_SO_ORDERED = re.compile(
+       r'^\s*SO\s*ORDERED\s*[.,;]?\s*$',
+       re.IGNORECASE
+   )
+   ```
+   Anchored — only matches standalone SO ORDERED lines. Body text containing "so ordered" mid-sentence is excluded.
+
+#### Part F: Update `find_near_misses` filter logic
+
+After tightening all regexes, simplify the filter logic in `find_near_misses`. The anchored regexes now handle most filtering, so remove the per-pattern length checks:
+
+```python
+for line_num, line in enumerate(lines, start=1):
+    if line_num in matched_lines:
+        continue
+
+    # Skip very long lines (body text, not structural)
+    if len(line) > 200:
+        continue
+
+    # Check each near-miss pattern (order: most specific first)
+    pattern_matched = None
+
+    if RE_NEAR_BRACKET.match(line):
+        pattern_matched = "bracket"
+    elif RE_NEAR_DIVISION.match(line):
+        pattern_matched = "division"
+    elif RE_NEAR_SO_ORDERED.match(line):
+        pattern_matched = "so_ordered"
+    elif RE_NEAR_DOC_TYPE.match(line):
+        pattern_matched = "doc_type"
+
+    if pattern_matched:
+        near_misses.append({
+            "line_num": line_num,
+            "pattern": pattern_matched,
+            "text": line[:120]
+        })
+```
+
+Note: all near-miss regexes now use `.match()` (anchored) instead of `.search()`.
+
+**Constraints:**
+- Do NOT change `check_mean_confidence`, `check_missing_required_labels`, or `check_confidence_distribution` — those are already well-calibrated
+- Do NOT change the near-miss output format (line_num, pattern, text)
+- Do NOT change the 30-item cap logic
+- Do NOT use Unicode characters in print statements
+- Update the `__main__` test block to reflect the tightened patterns (the existing test for near-misses will need adjusted line content)
+
+---
+
+### DIAG-FIX-2: Expand matched_lines to Include Section Extractor Matches
+
+**Status:** DONE
+**Depends on:** DIAG-3
+**Files to modify:**
+- `regex_improve/detection/pipeline.py`
+
+**Description:**
+The `matched_lines` set in `process_volume()` currently only includes boundary FSM lines (division headers and bracket lines). Section extractor structural matches (SO ORDERED, DECISION/RESOLUTION, SYLLABUS, COUNSEL HEADER, etc.) are not excluded, causing them to appear as false near-misses.
+
+**Current code (pipeline.py, after Step 3):**
+```python
+matched_lines = set()
+for boundary in boundaries:
+    matched_lines.add(boundary.start_line)
+    for cn in boundary.case_numbers:
+        start_line = preprocessor.loader.char_to_line(cn.start_char)
+        end_line = preprocessor.loader.char_to_line(cn.end_char - 1)
+        for line_num in range(start_line, end_line + 1):
+            matched_lines.add(line_num)
+```
+
+**Fix:** After Step 3 (`extractor.extract_all(boundaries)`), iterate over extracted cases and add all annotation start/end lines to `matched_lines`. Every annotation represents a line (or range of lines) that the section extractor successfully matched:
+
+```python
+# Collect matched line numbers for near-miss detection
+matched_lines = set()
+
+# From boundary FSM: division headers and bracket lines
+for boundary in boundaries:
+    matched_lines.add(boundary.start_line)
+    for cn in boundary.case_numbers:
+        start_line = preprocessor.loader.char_to_line(cn.start_char)
+        end_line = preprocessor.loader.char_to_line(cn.end_char - 1)
+        for line_num in range(start_line, end_line + 1):
+            matched_lines.add(line_num)
+
+# From section extractor: all annotation lines
+for case in extracted_cases:
+    for ann in case.annotations:
+        ann_start_line = preprocessor.loader.char_to_line(ann.start_char)
+        ann_end_line = preprocessor.loader.char_to_line(ann.end_char - 1)
+        # For position labels (start_of_case, end_decision, etc.), add exact line
+        # For span labels (parties, counsel, votes), add the start line only
+        # to avoid over-excluding body text within the span
+        if ann.label in ("start_of_case", "end_of_case", "start_decision",
+                         "end_decision", "start_syllabus", "end_syllabus",
+                         "start_opinion", "end_opinion", "division",
+                         "doc_type", "ponente"):
+            # Position/header labels: add all lines in the span
+            for line_num in range(ann_start_line, ann_end_line + 1):
+                matched_lines.add(line_num)
+        elif ann.label in ("case_number", "date"):
+            # Short labels: add all lines
+            for line_num in range(ann_start_line, ann_end_line + 1):
+                matched_lines.add(line_num)
+        else:
+            # Long span labels (parties, counsel, votes, syllabus content):
+            # Only add the first and last line to avoid masking body text issues
+            matched_lines.add(ann_start_line)
+            matched_lines.add(ann_end_line)
+```
+
+**Why split by label type:**
+- Position/header labels (`doc_type`, `division`, `ponente`, `start_decision`, etc.) are exactly the lines that near-miss detection would otherwise flag. All their lines must be excluded.
+- Long span labels (`parties`, `counsel`, `votes`) cover many body text lines. Excluding ALL of them would hide genuinely unmatched structural lines within those spans. Only exclude the first/last lines.
+
+**Note:** Access `ann.start_char` and `ann.end_char` directly — the `case.annotations` list at this point contains `Annotation` dataclass objects (not dicts yet, that conversion happens in Step 4).
+
+**Constraints:**
+- Do NOT change how `matched_lines` is passed to `run_diagnostics` — only change how it's populated
+- Do NOT modify the section extractor — only read its output
+- The annotation objects at this stage are `Annotation` dataclasses with `.label`, `.start_char`, `.end_char` attributes
+- Do NOT use Unicode characters in print statements
+
+---
+
+### DIAG-FIX Dependency Graph
+
+```
+DIAG-FIX-1 (calibrate thresholds + tighten patterns)  -- independent
+DIAG-FIX-2 (expand matched_lines)                     -- independent
+
+Both depend on DIAG-3 (already done).
+Can be done in parallel. Both should be applied before re-running batch.
 ```
 
 ---
