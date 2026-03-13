@@ -28,6 +28,7 @@ from .llm_fallback import (
     convert_llm_labels_to_annotations,
     get_client
 )
+from .diagnostics import run_diagnostics, DiagnosticReport
 
 # Setup logging
 logging.basicConfig(
@@ -47,6 +48,7 @@ class PipelineResult:
     llm_cost: float = 0.0
     confidence_summary: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    diagnostics: Optional[Dict[str, Any]] = None
 
 
 def process_volume(
@@ -107,6 +109,17 @@ def process_volume(
         raise
     
     logger.info(f"Extracted {len(extracted_cases)} cases")
+    
+    # Collect matched line numbers for near-miss detection
+    matched_lines = set()
+    for boundary in boundaries:
+        matched_lines.add(boundary.start_line)  # division line
+        for cn in boundary.case_numbers:
+            # Convert char offsets to line numbers
+            start_line = preprocessor.loader.char_to_line(cn.start_char)
+            end_line = preprocessor.loader.char_to_line(cn.end_char - 1)
+            for line_num in range(start_line, end_line + 1):
+                matched_lines.add(line_num)
     
     # Step 4: OCR correction
     logger.info("Step 4: Applying OCR corrections...")
@@ -297,9 +310,23 @@ def process_volume(
         }
     }
     
-    # Step 8: Write output if requested
+    # Step 8: Run diagnostics
+    logger.info("Step 8: Running diagnostics...")
+    diagnostic_report = None
+    try:
+        diagnostic_report = run_diagnostics(
+            all_cases,
+            volume_text=volume_text,
+            matched_lines=matched_lines
+        )
+        logger.info(f"Diagnostics completed: {diagnostic_report.worst_severity}")
+    except Exception as e:
+        logger.error(f"Diagnostics failed: {e}")
+        # Continue without diagnostics
+    
+    # Step 9: Write output if requested
     if output_path:
-        logger.info(f"Step 8: Writing output to {output_path}")
+        logger.info(f"Step 9: Writing output to {output_path}")
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             with open(output_path, 'w', encoding='utf-8') as f:
@@ -328,10 +355,21 @@ def process_volume(
         }
     )
     
+    # Add diagnostics to result if available
+    if diagnostic_report:
+        result.diagnostics = {
+            "worst_severity": diagnostic_report.worst_severity,
+            "checks": [
+                {"name": c.name, "severity": c.severity, "message": c.message}
+                for c in diagnostic_report.checks
+            ],
+            "near_miss_count": len(diagnostic_report.near_misses)
+        }
+    
     # Write summary log
     if output_path:
         log_path = output_path.with_suffix(".log")
-        write_summary_log(result, budget, log_path)
+        write_summary_log(result, budget, log_path, diagnostic_report=diagnostic_report)
 
     # Print summary
     print_summary(result, budget)
@@ -430,7 +468,8 @@ def process_batch(
                 "volume": r.volume_name,
                 "cases": len(r.cases),
                 "llm_calls": r.llm_calls,
-                "llm_cost": r.llm_cost
+                "llm_cost": r.llm_cost,
+                "diagnostics_severity": r.diagnostics.get("worst_severity", "N/A") if r.diagnostics else "N/A"
             }
             for r in results
         ]
@@ -445,7 +484,8 @@ def process_batch(
     return summary
 
 
-def write_summary_log(result: PipelineResult, budget: BudgetTracker, log_path: Path) -> None:
+def write_summary_log(result: PipelineResult, budget: BudgetTracker, log_path: Path, 
+                     diagnostic_report: DiagnosticReport = None) -> None:
     """Write a human-readable summary log to a text file."""
     from datetime import datetime
 
@@ -494,6 +534,26 @@ def write_summary_log(result: PipelineResult, budget: BudgetTracker, log_path: P
         for rule in sorted(corr_by_rule.keys()):
             lines.append(f"  {rule:<30s} {corr_by_rule[rule]:>4d}")
         lines.append("")
+
+    # Diagnostics section
+    if diagnostic_report:
+        lines.append("DIAGNOSTICS")
+        lines.append("-" * 40)
+        lines.append(f"  Overall: {diagnostic_report.worst_severity.upper()}")
+        lines.append("")
+        for check in diagnostic_report.checks:
+            severity_marker = {"ok": "  ", "warning": "! ", "critical": "!!"}
+            marker = severity_marker.get(check.severity, "  ")
+            lines.append(f"  {marker}{check.name}")
+            lines.append(f"      {check.message}")
+        lines.append("")
+
+        if diagnostic_report.near_misses:
+            lines.append("  NEAR-MISS PATTERN MATCHES")
+            lines.append("  " + "-" * 36)
+            for nm in diagnostic_report.near_misses:
+                lines.append(f"    Line {nm['line_num']:>6d}  [{nm['pattern']:<12s}]  {nm['text']}")
+            lines.append("")
 
     # Per-case details
     lines.append("PER-CASE DETAILS")
@@ -571,8 +631,10 @@ def write_batch_summary_log(summary: Dict[str, Any], output_dir: Path) -> None:
     lines.append("PER-VOLUME RESULTS")
     lines.append("-" * 40)
     for vol in summary['volume_results']:
+        diag_status = vol.get('diagnostics_severity', 'N/A')
         lines.append(f"  {vol['volume']:<30s} {vol['cases']:>3d} cases, "
-                     f"{vol['llm_calls']:>2d} LLM calls, ${vol['llm_cost']:.4f}")
+                     f"{vol['llm_calls']:>2d} LLM calls, ${vol['llm_cost']:.4f}, "
+                     f"diag: {diag_status}")
     lines.append("")
     lines.append("=" * 80)
 
@@ -598,6 +660,18 @@ def print_summary(result: PipelineResult, budget: BudgetTracker) -> None:
     print(f"LLM calls: {result.llm_calls}")
     print(f"LLM cost: ${result.llm_cost:.4f}")
     print(f"Budget remaining: ${budget.budget_remaining:.4f}")
+    
+    # Show diagnostics warnings/criticals only
+    if result.diagnostics and result.diagnostics["worst_severity"] != "ok":
+        print(f"\n  DIAGNOSTICS: {result.diagnostics['worst_severity'].upper()}")
+        for check in result.diagnostics["checks"]:
+            if check["severity"] != "ok":
+                marker = "!" if check["severity"] == "warning" else "!!"
+                print(f"    {marker} {check['message']}")
+        nm_count = result.diagnostics.get("near_miss_count", 0)
+        if nm_count > 0:
+            print(f"    {nm_count} near-miss pattern matches (see .log for details)")
+    
     print("=" * 80)
 
 

@@ -882,6 +882,366 @@ regex_improve/
 
 ---
 
+## Self-Diagnostic Failure Reporting (DIAG-1, DIAG-2, DIAG-3)
+
+Volume-level diagnostics that run automatically on every pipeline invocation. Aggregates failure signals to help identify when the pipeline hits unfamiliar formatting. Output is appended to the existing `.log` file (no changes to `predicted.json`). Report-only — no automatic pipeline behavior changes.
+
+---
+
+### DIAG-1: Diagnostics Module — Statistical Checks
+
+**Status:** DONE
+**Depends on:** T8 (pipeline.py)
+**Files to create:**
+- `regex_improve/detection/diagnostics.py`
+
+**Description:**
+Create a diagnostics module that takes a `PipelineResult` and produces a `DiagnosticReport` with 4 statistical checks. Each check produces a severity level (`ok`, `warning`, `critical`) and a human-readable message.
+
+#### `regex_improve/detection/diagnostics.py`
+
+**Imports:**
+```python
+import statistics
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
+```
+
+**Data classes:**
+
+```python
+@dataclass
+class DiagnosticCheck:
+    """Single diagnostic check result."""
+    name: str           # e.g., "mean_confidence"
+    severity: str       # "ok", "warning", "critical"
+    message: str        # human-readable summary
+    value: Any          # the measured value (for programmatic use)
+
+@dataclass
+class DiagnosticReport:
+    """Full diagnostic report for a volume."""
+    checks: List[DiagnosticCheck] = field(default_factory=list)
+    near_misses: List[Dict[str, Any]] = field(default_factory=list)  # DIAG-2
+
+    @property
+    def worst_severity(self) -> str:
+        """Return the worst severity across all checks."""
+        if any(c.severity == "critical" for c in self.checks):
+            return "critical"
+        if any(c.severity == "warning" for c in self.checks):
+            return "warning"
+        return "ok"
+```
+
+**Functions:**
+
+1. `check_mean_confidence(cases: List[Dict]) -> DiagnosticCheck`:
+   - Compute mean confidence score across all cases (from `case["confidence_score"]`)
+   - Thresholds:
+     - `>= 0.75` -> `ok`: "Mean confidence {score:.3f} (healthy)"
+     - `>= 0.60` -> `warning`: "Mean confidence {score:.3f} -- some cases may have unfamiliar formatting"
+     - `< 0.60` -> `critical`: "Mean confidence {score:.3f} -- unfamiliar formatting detected, consider annotating ground truth for this era"
+   - If no cases, return `warning` with message "No cases detected"
+
+2. `check_missing_required_labels(cases: List[Dict]) -> DiagnosticCheck`:
+   - For each case, check if `case_number`, `date`, and `doc_type` annotations are present
+   - Compute the percentage of cases missing ANY of these 3 labels
+   - Thresholds:
+     - `<= 5%` -> `ok`: "Required labels present in {pct:.0f}% of cases"
+     - `<= 15%` -> `warning`: "{count} cases ({pct:.0f}%) missing case_number/date/doc_type -- bracket regex may be failing"
+     - `> 15%` -> `critical`: "{count} cases ({pct:.0f}%) missing required labels -- bracket regex likely failing for this era"
+   - Also list which specific labels are most commonly missing (top 3)
+
+3. `check_span_lengths(cases: List[Dict]) -> DiagnosticCheck`:
+   - Collect text lengths for `parties` and `votes` annotations across all cases
+   - Compute mean and standard deviation for each
+   - Flag cases where span length is > 3 standard deviations from mean
+   - Thresholds:
+     - 0 outliers -> `ok`: "Span lengths normal (parties: mean {p_mean:.0f} chars, votes: mean {v_mean:.0f} chars)"
+     - 1-3 outliers -> `warning`: "{count} cases with outlier span lengths" + list the case_ids
+     - `> 3` outliers -> `critical`: "{count} cases with outlier span lengths -- extraction boundaries may be wrong"
+   - If fewer than 5 cases have a given label, skip stddev check for that label (too few samples)
+
+4. `check_confidence_distribution(cases: List[Dict]) -> DiagnosticCheck`:
+   - Count cases in confidence buckets: `[0.0-0.5)`, `[0.5-0.7)`, `[0.7-0.9)`, `[0.9-1.0]`
+   - Report distribution as a histogram line: e.g., `"[0-0.5): 2 | [0.5-0.7): 5 | [0.7-0.9): 40 | [0.9-1.0]: 25"`
+   - Thresholds:
+     - `>= 70%` in top two buckets -> `ok`
+     - `>= 50%` in top two buckets -> `warning`: "Only {pct:.0f}% of cases above 0.7 confidence"
+     - `< 50%` in top two buckets -> `critical`: "Majority of cases below 0.7 confidence"
+
+5. `run_diagnostics(cases: List[Dict]) -> DiagnosticReport`:
+   - Call all 4 check functions
+   - Return `DiagnosticReport` with the results
+   - `near_misses` field is left empty (populated by DIAG-2)
+
+**`if __name__ == "__main__"` test block:**
+- Create mock cases with known scores and annotations
+- Run `run_diagnostics()` and print results
+- Test edge cases: empty case list, all-perfect scores, all-terrible scores
+
+**Constraints:**
+- Zero external dependencies (stdlib only)
+- Do NOT import from `pipeline.py` (avoid circular import) — the function takes `List[Dict]` not `PipelineResult`
+- Do NOT use Unicode characters in print statements
+- Each check function is independent and testable in isolation
+- Severity strings must be exactly `"ok"`, `"warning"`, or `"critical"` (lowercase)
+
+---
+
+### DIAG-2: Near-Miss Pattern Detection
+
+**Status:** DONE
+**Depends on:** DIAG-1
+**Files to modify:**
+- `regex_improve/detection/diagnostics.py`
+
+**Description:**
+Add a function that scans the raw volume text for lines that *almost* match structural patterns but don't fully match. These near-misses are candidates for regex updates when expanding to new eras.
+
+**Function to add:**
+
+`find_near_misses(volume_text: str, matched_lines: set) -> List[Dict[str, Any]]`:
+
+- `volume_text`: the full volume text
+- `matched_lines`: set of 1-based line numbers that were already matched by the pipeline (division headers, case brackets, etc.) — passed in from the pipeline so we don't re-report things that already matched
+
+**Near-miss patterns to scan for** (define as module-level compiled regexes with prefix `RE_NEAR_`):
+
+1. **Near-miss division headers** (`RE_NEAR_DIVISION`):
+   - Lines that contain "DIVISION" or "EN BANC" but didn't match `RE_DIVISION`
+   - Pattern: `r'(?:DIVISION|EN\s*BANC)'` (case-insensitive)
+   - Filter out: lines already in `matched_lines`, lines inside the body of a case (heuristic: ignore lines > 200 chars), lines that are part of "PHILIPPINE REPORTS" headers
+
+2. **Near-miss case brackets** (`RE_NEAR_BRACKET`):
+   - Lines containing "G.R." or "A.M." followed by "No" but not matched by `RE_CASE_BRACKET` or `RE_CASE_BRACKET_NO_CLOSE`
+   - Pattern: `r'(?:G\.?\s*R\.?\s*No|A\.?\s*M\.?\s*No)'` (case-insensitive)
+   - Filter out: lines already in `matched_lines`, lines inside syllabus/opinion text (heuristic: ignore if the line is > 150 chars, as bracket lines are short)
+
+3. **Near-miss SO ORDERED** (`RE_NEAR_SO_ORDERED`):
+   - Lines containing "SO ORDERED" that didn't match `RE_SO_ORDERED`
+   - Pattern: `r'SO\s*ORDERED'` (case-insensitive)
+   - Filter out: lines already in `matched_lines`
+
+4. **Near-miss doc type** (`RE_NEAR_DOC_TYPE`):
+   - Lines containing "DECISION" or "RESOLUTION" as a standalone word but not matched by `RE_DOC_TYPE`
+   - Pattern: `r'\b(?:D\s*E\s*C\s*I\s*S\s*I\s*O\s*N|R\s*E\s*S\s*O\s*L\s*U\s*T\s*I\s*O\s*N)\b'`
+   - Filter out: lines already in `matched_lines`, lines > 100 chars
+
+**Output format** for each near-miss:
+```python
+{
+    "line_num": int,       # 1-based line number
+    "pattern": str,        # which near-miss pattern matched (e.g., "division", "bracket", "so_ordered", "doc_type")
+    "text": str,           # the line text (truncated to 120 chars)
+}
+```
+
+**Cap:** Return at most 30 near-misses total (sorted by line number). If more than 30, keep the first 30 and add a summary entry: `{"line_num": 0, "pattern": "overflow", "text": "... and N more near-misses truncated"}`.
+
+**Update `run_diagnostics`:**
+- Add optional parameters: `volume_text: Optional[str] = None` and `matched_lines: Optional[set] = None`
+- If both are provided, call `find_near_misses()` and populate `report.near_misses`
+- If not provided, skip near-miss detection (backwards compatible)
+
+**Constraints:**
+- Do NOT import `RE_DIVISION`, `RE_CASE_BRACKET`, etc. — define independent near-miss patterns in this module to avoid coupling
+- The near-miss regexes should be MORE lenient than the real patterns (that's the point — they catch what the real patterns miss)
+- Line length filters are important to avoid flooding output with body text that happens to contain "DECISION"
+- Do NOT use Unicode characters in print statements
+- Must handle empty `volume_text` gracefully (return empty list)
+
+---
+
+### DIAG-3: Wire Diagnostics into Pipeline and Log Output
+
+**Status:** DONE
+**Depends on:** DIAG-1, DIAG-2
+**Files to modify:**
+- `regex_improve/detection/pipeline.py`
+
+**Description:**
+Wire the diagnostics module into the pipeline so it runs on every invocation. Collect the set of matched lines during boundary detection/section extraction, pass them to diagnostics, and append results to the `.log` file.
+
+#### Changes to `regex_improve/detection/pipeline.py`
+
+**1. Add import (at top, with other detection imports):**
+```python
+from .diagnostics import run_diagnostics, DiagnosticReport
+```
+
+**2. Collect matched lines in `process_volume()` (after Step 3, around line 109):**
+
+After `extractor.extract_all(boundaries)` returns, build the set of matched line numbers. These are lines that the pipeline already matched as structural elements:
+
+```python
+# Collect matched line numbers for near-miss detection
+matched_lines = set()
+for boundary in boundaries:
+    matched_lines.add(boundary.division_line)
+    matched_lines.add(boundary.start_line)
+    # Add bracket lines
+    for cn in boundary.case_numbers:
+        start_line = preprocessor.loader.char_to_line(cn.start_char)
+        end_line = preprocessor.loader.char_to_line(cn.end_char - 1)
+        for ln in range(start_line, end_line + 1):
+            matched_lines.add(ln)
+```
+
+Note: check that `boundary` objects actually have `division_line` and `start_line` attributes. If not, use whatever attributes store the line numbers of matched structural elements. Read the `CaseBoundary` dataclass in `boundary_fsm.py` to confirm the correct attribute names.
+
+**3. Run diagnostics (after Step 7, before writing the log, around line 330):**
+
+```python
+# Step 8: Run diagnostics
+logger.info("Step 8: Running diagnostics...")
+diagnostic_report = run_diagnostics(
+    all_cases,
+    volume_text=volume_text,
+    matched_lines=matched_lines
+)
+```
+
+**4. Add `diagnostic_report` to `PipelineResult`:**
+
+Add a new field to `PipelineResult`:
+```python
+diagnostics: Optional[Dict[str, Any]] = None
+```
+
+Set it after running diagnostics:
+```python
+result.diagnostics = {
+    "worst_severity": diagnostic_report.worst_severity,
+    "checks": [
+        {"name": c.name, "severity": c.severity, "message": c.message}
+        for c in diagnostic_report.checks
+    ],
+    "near_miss_count": len(diagnostic_report.near_misses)
+}
+```
+
+**5. Update `write_summary_log()` to include diagnostics:**
+
+After the "PER-CASE DETAILS" section and before "END OF LOG", add a new section:
+
+```python
+# Diagnostics section
+if result.diagnostics:
+    lines.append("DIAGNOSTICS")
+    lines.append("-" * 40)
+    lines.append(f"  Overall: {result.diagnostics['worst_severity'].upper()}")
+    lines.append("")
+    for check in result.diagnostics["checks"]:
+        severity_marker = {"ok": "  ", "warning": "! ", "critical": "!!"}
+        marker = severity_marker.get(check["severity"], "  ")
+        lines.append(f"  {marker}{check['name']}")
+        lines.append(f"      {check['message']}")
+    lines.append("")
+
+    if result.diagnostics.get("near_misses"):
+        lines.append("  NEAR-MISS PATTERN MATCHES")
+        lines.append("  " + "-" * 36)
+        for nm in result.diagnostics["near_misses"]:
+            lines.append(f"    Line {nm['line_num']:>6d}  [{nm['pattern']:<12s}]  {nm['text']}")
+        lines.append("")
+```
+
+Wait — `result.diagnostics` as defined in step 4 doesn't include `near_misses` list (only `near_miss_count`). To include the actual near-miss lines in the log, either:
+- (a) Store the full `near_misses` list in `result.diagnostics`, or
+- (b) Pass the `DiagnosticReport` object directly to `write_summary_log`
+
+Option (b) is cleaner. Change `write_summary_log` signature to accept an optional `DiagnosticReport`:
+
+```python
+def write_summary_log(result: PipelineResult, budget: BudgetTracker,
+                      log_path: Path, diagnostic_report: DiagnosticReport = None) -> None:
+```
+
+Then use `diagnostic_report` directly in the log writer instead of going through `result.diagnostics`. Still store the summary dict in `result.diagnostics` for programmatic access.
+
+Update the call site:
+```python
+write_summary_log(result, budget, log_path, diagnostic_report=diagnostic_report)
+```
+
+**6. Print diagnostics to console in `print_summary()`:**
+
+After existing print statements, add:
+```python
+if result.diagnostics:
+    worst = result.diagnostics["worst_severity"]
+    if worst != "ok":
+        print(f"\n  DIAGNOSTICS: {worst.upper()}")
+        for check in result.diagnostics["checks"]:
+            if check["severity"] != "ok":
+                marker = "!" if check["severity"] == "warning" else "!!"
+                print(f"    {marker} {check['message']}")
+        nm_count = result.diagnostics.get("near_miss_count", 0)
+        if nm_count > 0:
+            print(f"    {nm_count} near-miss pattern matches (see .log for details)")
+```
+
+Only print diagnostics to console if there are warnings/criticals. If everything is `ok`, stay quiet on console (details are always in the `.log`).
+
+**7. Update batch summary:**
+
+In `write_batch_summary_log()`, after per-volume results, add a line showing the worst diagnostic severity per volume:
+
+```python
+for vol in summary['volume_results']:
+    diag_status = vol.get('diagnostics_severity', 'N/A')
+    lines.append(f"  {vol['volume']:<30s} {vol['cases']:>3d} cases, "
+                 f"{vol['llm_calls']:>2d} LLM calls, ${vol['llm_cost']:.4f}, "
+                 f"diag: {diag_status}")
+```
+
+This requires storing `diagnostics_severity` in the per-volume result dict during `process_batch`. Add it where volume results are appended (around line 420):
+
+```python
+volume_result = {
+    "volume": vol_path.name,
+    "cases": len(result.cases),
+    "llm_calls": result.llm_calls,
+    "llm_cost": result.llm_cost,
+    "diagnostics_severity": result.diagnostics.get("worst_severity", "N/A") if result.diagnostics else "N/A"
+}
+```
+
+**Constraints:**
+- Do NOT change the `predicted.json` output format — diagnostics go in `.log` only
+- Diagnostics must not crash the pipeline — wrap in try/except, log errors, continue
+- Console output for diagnostics only appears when there are warnings/criticals
+- The `.log` file always includes the full diagnostics section (even when all `ok`)
+- Do NOT use Unicode characters in print statements
+- Step numbers in log messages should update (current "Step 7: Assembling final JSON" stays, diagnostics becomes "Step 8")
+- The `volume_text` variable is already available in `process_volume` scope (loaded in Step 1)
+
+---
+
+### DIAG Dependency Graph
+
+```
+DIAG-1 (statistical checks)  ---- DIAG-2 (near-miss patterns) ---- DIAG-3 (pipeline wiring)
+```
+
+DIAG-1 must be completed first. DIAG-2 adds to DIAG-1's module. DIAG-3 wires both into pipeline.
+
+---
+
+### DIAG File Tree
+
+```
+regex_improve/
+├── detection/
+│   ├── diagnostics.py          # DIAG-1 + DIAG-2 (new)
+│   ├── pipeline.py             # DIAG-3 (modified)
+│   └── ... (other existing files)
+```
+
+---
+
 ## Python Dependencies to Add
 
 Add to `requirements.txt`:
@@ -906,7 +1266,8 @@ regex_improve/
 │   ├── ocr_correction.py        # T5 (KJ-1: loads from registry)
 │   ├── confidence.py            # T6
 │   ├── llm_fallback.py          # T7
-│   ├── pipeline.py              # T8
+│   ├── pipeline.py              # T8 (DIAG-3: wires diagnostics)
+│   ├── diagnostics.py           # DIAG-1 + DIAG-2
 │   │   # FIX-1 thru FIX-6 modify: section_extractor.py, boundary_fsm.py
 │   ├── justices.json            # KJ-1 (committed, grows via harvest)
 │   ├── justice_registry.py      # KJ-1
