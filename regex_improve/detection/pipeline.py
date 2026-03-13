@@ -328,9 +328,14 @@ def process_volume(
         }
     )
     
+    # Write summary log
+    if output_path:
+        log_path = output_path.with_suffix(".log")
+        write_summary_log(result, budget, log_path)
+
     # Print summary
     print_summary(result, budget)
-    
+
     return result
 
 
@@ -433,8 +438,151 @@ def process_batch(
     
     logger.info("Batch processing complete")
     print_batch_summary(summary)
-    
+
+    # Write batch summary log
+    write_batch_summary_log(summary, output_dir)
+
     return summary
+
+
+def write_summary_log(result: PipelineResult, budget: BudgetTracker, log_path: Path) -> None:
+    """Write a human-readable summary log to a text file."""
+    from datetime import datetime
+
+    lines = []
+    lines.append("=" * 80)
+    lines.append(f"DETECTION PIPELINE LOG — {result.volume_name}")
+    lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("=" * 80)
+    lines.append("")
+
+    # Overall stats
+    lines.append("SUMMARY")
+    lines.append("-" * 40)
+    lines.append(f"Total cases detected:  {len(result.cases)}")
+    lines.append(f"Boundaries detected:   {result.metadata.get('boundaries_detected', 'N/A')}")
+    lines.append(f"High confidence:       {result.confidence_summary.get('high_confidence', 'N/A')}")
+    lines.append(f"Low confidence:        {result.confidence_summary.get('low_confidence', 'N/A')}")
+    lines.append(f"Confidence threshold:  {result.confidence_summary.get('threshold', 'N/A')}")
+    lines.append(f"OCR corrections:       {len(result.corrections)}")
+    lines.append(f"LLM calls:             {result.llm_calls}")
+    lines.append(f"LLM cost:              ${result.llm_cost:.4f}")
+    lines.append(f"Budget remaining:      ${budget.budget_remaining:.4f}")
+    lines.append("")
+
+    # Per-label annotation counts
+    label_counts = {}
+    for case in result.cases:
+        for ann in case.get("annotations", []):
+            label = ann.get("label", "unknown")
+            label_counts[label] = label_counts.get(label, 0) + 1
+
+    lines.append("ANNOTATION COUNTS BY LABEL")
+    lines.append("-" * 40)
+    for label in sorted(label_counts.keys()):
+        lines.append(f"  {label:<20s} {label_counts[label]:>4d}")
+    lines.append(f"  {'TOTAL':<20s} {sum(label_counts.values()):>4d}")
+    lines.append("")
+
+    # OCR corrections breakdown
+    if result.corrections:
+        lines.append("OCR CORRECTIONS")
+        lines.append("-" * 40)
+        corr_by_rule = {}
+        for c in result.corrections:
+            corr_by_rule[c.rule] = corr_by_rule.get(c.rule, 0) + 1
+        for rule in sorted(corr_by_rule.keys()):
+            lines.append(f"  {rule:<30s} {corr_by_rule[rule]:>4d}")
+        lines.append("")
+
+    # Per-case details
+    lines.append("PER-CASE DETAILS")
+    lines.append("-" * 40)
+
+    for case in result.cases:
+        case_id = case.get("case_id", "unknown")
+        score = case.get("confidence_score", 0.0)
+        flags = case.get("confidence_flags", [])
+        annotations = case.get("annotations", [])
+
+        # Collect labels present
+        labels_present = sorted(set(ann.get("label", "") for ann in annotations))
+
+        # Get key fields for quick scan
+        case_num = ""
+        date_text = ""
+        division = ""
+        ponente = ""
+        for ann in annotations:
+            label = ann.get("label", "")
+            text = ann.get("text", "")
+            if label == "case_number" and not case_num:
+                case_num = text[:60]
+            elif label == "date" and not date_text:
+                date_text = text[:30]
+            elif label == "division" and not division:
+                division = text
+            elif label == "ponente" and not ponente:
+                ponente = text
+
+        lines.append(f"  {case_id}")
+        lines.append(f"    Confidence:  {score:.3f}")
+        lines.append(f"    Case #:      {case_num}")
+        lines.append(f"    Date:        {date_text}")
+        lines.append(f"    Division:    {division}")
+        lines.append(f"    Ponente:     {ponente}")
+        lines.append(f"    Labels ({len(annotations)}): {', '.join(labels_present)}")
+        if flags:
+            for flag in flags:
+                lines.append(f"    [!] {flag}")
+        lines.append("")
+
+    lines.append("=" * 80)
+    lines.append("END OF LOG")
+    lines.append("=" * 80)
+
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+        logger.info(f"Summary log written to {log_path}")
+    except Exception as e:
+        logger.error(f"Failed to write summary log: {e}")
+
+
+def write_batch_summary_log(summary: Dict[str, Any], output_dir: Path) -> None:
+    """Write a human-readable batch summary log."""
+    from datetime import datetime
+
+    log_path = output_dir / "batch_summary.log"
+    lines = []
+    lines.append("=" * 80)
+    lines.append("BATCH DETECTION PIPELINE LOG")
+    lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("=" * 80)
+    lines.append("")
+    lines.append(f"Volumes processed:     {summary['volumes_processed']}")
+    lines.append(f"Total cases:           {summary['total_cases']}")
+    lines.append(f"Total LLM calls:       {summary['total_llm_calls']}")
+    lines.append(f"Total LLM cost:        ${summary['total_llm_cost']:.4f}")
+    lines.append(f"Total OCR corrections:  {summary['total_ocr_corrections']}")
+    lines.append(f"Budget remaining:      ${summary['budget_remaining']:.4f}")
+    lines.append("")
+    lines.append("PER-VOLUME RESULTS")
+    lines.append("-" * 40)
+    for vol in summary['volume_results']:
+        lines.append(f"  {vol['volume']:<30s} {vol['cases']:>3d} cases, "
+                     f"{vol['llm_calls']:>2d} LLM calls, ${vol['llm_cost']:.4f}")
+    lines.append("")
+    lines.append("=" * 80)
+
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+        logger.info(f"Batch summary log written to {log_path}")
+    except Exception as e:
+        logger.error(f"Failed to write batch summary log: {e}")
 
 
 def print_summary(result: PipelineResult, budget: BudgetTracker) -> None:

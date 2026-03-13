@@ -28,14 +28,30 @@ RE_DIVISION = re.compile(
 # Handle nested brackets like {Adm. Matter Nos. ...]. May 30, 1986]
 # Use greedy date match to capture everything up to the last closing bracket
 # Allow trailing characters after closing bracket (OCR errors like underscore)
+# FIX-2: Make opening bracket optional (allow [, (, {, or OCR-corrupted 1, or missing entirely)
+# Also make closing bracket more flexible: allow ], ), }, |, ., or even missing
+# Handle nested/multiple opening brackets like ([ or [I (OCR errors)
 RE_CASE_BRACKET = re.compile(
-    r'^[\[\(\{]'
-    r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
+    r'^[\[\(\{1I]*(?:[\[\(\{1I])?'  # Opening bracket(s) (optional, tolerates OCR errors)
+    r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|'
+    r'A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+    r'Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
     r'\s*([\w\-/&\s\.]+?)'  # case number (non-greedy)
     r'[\.\s,]+'             # separator between case number and date
-    r'(.+)'                 # date text (greedy match - everything up to closing bracket)
-    r'[\]\)\}]'
-    r'.*$',  # Allow any characters after closing bracket (OCR errors)
+    r'(.+)'                 # date text (greedy — captures everything up to closing bracket)
+    r'[\]\)\}]'             # Closing bracket (REQUIRED: ], ), or })
+    r'.*$',                 # Allow trailing chars after closing bracket (OCR errors)
+    re.IGNORECASE
+)
+
+# FIX-2: Fallback pattern for lines where BOTH brackets are corrupted/missing
+# but the line clearly contains a G.R. number and date with month name
+RE_CASE_BRACKET_NO_CLOSE = re.compile(
+    r'^[\[\(\{1]?'
+    r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
+    r'\s*([\w\-/&\s\.]+?)'
+    r'[\.\s,]+'
+    r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})',
     re.IGNORECASE
 )
 
@@ -109,6 +125,10 @@ class CaseBoundaryDetector:
                 # Skip noise lines when searching for brackets (brackets are not noise)
                 if not is_noise:
                     bracket_match = RE_CASE_BRACKET.match(line_text)
+                    # FIX-2: Try fallback regex if primary fails
+                    if not bracket_match:
+                        bracket_match = RE_CASE_BRACKET_NO_CLOSE.match(line_text)
+                    
                     if bracket_match:
                         # Found bracket! Extract case number and date
                         case_num_text_raw = bracket_match.group(1).strip()
@@ -121,9 +141,7 @@ class CaseBoundaryDetector:
                         
                         # Find the case number text within the bracket
                         # It starts after the opening bracket and prefix
-                        bracket_opener = full_bracket[0]  # '[', '(', or '{'
-                        # Find where the case number likely starts (after "G.R. No." etc.)
-                        # Simple approach: take everything from opening bracket to date separator
+                        # For fallback regex (no closing bracket), we need to handle differently
                         case_num_with_prefix = self._extract_case_number_from_bracket(full_bracket, date_text_raw)
                         
                         # Create CaseNumber object
@@ -176,6 +194,10 @@ class CaseBoundaryDetector:
                 
                 # Check if this line is a bracket
                 bracket_match = RE_CASE_BRACKET.match(line_text)
+                # FIX-2: Try fallback regex for consolidated cases too
+                if not bracket_match and consolidated_lines_searched < consolidated_search_limit:
+                    bracket_match = RE_CASE_BRACKET_NO_CLOSE.match(line_text)
+                
                 if bracket_match and consolidated_lines_searched < consolidated_search_limit:
                     # Found second bracket (consolidated case)
                     case_num_text_raw = bracket_match.group(1).strip()
@@ -236,7 +258,13 @@ class CaseBoundaryDetector:
                 date_pos = len(bracket_line) - 1
         
         # Extract case number part (from after opening bracket to before date)
-        case_part = bracket_line[1:date_pos].strip()  # Skip opening bracket
+        # FIX-2: Handle lines with multiple opening brackets or OCR errors
+        start_idx = 0
+        # Skip all opening bracket characters at the start
+        while start_idx < len(bracket_line) and bracket_line[start_idx] in '[({1I':
+            start_idx += 1
+        
+        case_part = bracket_line[start_idx:date_pos].strip()
         # Remove trailing separator characters
         case_part = case_part.rstrip('., ')
         return case_part
@@ -247,8 +275,15 @@ class CaseBoundaryDetector:
         # Find the position of case_number_text within the line
         pos = line_text.find(case_number_text)
         if pos == -1:
-            # Fallback: use the line start (after opening bracket)
-            pos = 1  # Skip opening bracket
+            # Fallback: try to find it without the opening bracket
+            # Check if line starts with bracket and case_number_text doesn't include it
+            if line_text and line_text[0] in '[({1':
+                # Try searching from position 1 (skip opening bracket)
+                pos = line_text.find(case_number_text, 1)
+                if pos != -1:
+                    return self.loader.line_col_to_char(line_num, pos)
+            # If still not found, use the line start
+            pos = 0
         return self.loader.line_col_to_char(line_num, pos)
     
     def _find_case_number_end_char(self, line_num: int, case_number_text: str) -> int:

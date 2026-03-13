@@ -15,14 +15,12 @@ except ImportError:
     RAPIDFUZZ_AVAILABLE = False
     print("Warning: rapidfuzz not installed. Ponente correction will be limited.")
 
+from .justice_registry import load_justices
+
 
 # Master justice name list (1986–2024, starting with Vol 226 names)
-KNOWN_JUSTICES = [
-    "ABAD SANTOS", "ALAMPAY", "CRUZ", "FERIA", "FERNAN",
-    "GUTIERREZ, JR.", "MELENCIO-HERRERA", "NARVASA", "PARAS",
-    "TEEHANKEE", "YAP",
-    # Extend as more volumes are processed
-]
+# Loaded from justices.json (grows dynamically via harvest_justices.py)
+KNOWN_JUSTICES = load_justices()
 
 # Known division names
 KNOWN_DIVISIONS = {"EN BANC", "FIRST DIVISION", "SECOND DIVISION", "THIRD DIVISION"}

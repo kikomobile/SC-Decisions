@@ -1,0 +1,18 @@
+{
+    "description": "Known Philippine Supreme Court justice surnames for ponente fuzzy matching. Grows dynamically via harvest_justices.py.",
+    "justices": [
+        "ABAD SANTOS",
+        "ALAMPAY",
+        "CRUZ",
+        "DAVIDE, JR.",
+        "FERIA",
+        "FERNAN",
+        "GUTIERREZ, JR.",
+        "MELENCIO-HERRERA",
+        "NARVASA",
+        "PARAS",
+        "ROMERO",
+        "TEEHANKEE",
+        "YAP"
+    ]
+}

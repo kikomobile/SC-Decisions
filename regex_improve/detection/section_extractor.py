@@ -10,7 +10,7 @@ if str(_REGEX_IMPROVE_DIR) not in sys.path:
     sys.path.insert(0, str(_REGEX_IMPROVE_DIR))
 
 from detection.preprocess import VolumePreprocessor
-from detection.boundary_fsm import CaseBoundary, CaseNumber
+from detection.boundary_fsm import CaseBoundary, CaseNumber, RE_DIVISION, RE_CASE_BRACKET
 
 # Import Annotation from gui.models for type hints
 try:
@@ -47,6 +47,32 @@ RE_SO_ORDERED = re.compile(r'^SO\s*ORDERED\s*[.,;]?\s*$', re.IGNORECASE)
 RE_SEPARATE_OPINION = re.compile(
     r'^([A-Z][A-Z\s,.\'\-]+?),\s*(?:C\.?\s*J\.?\s*|J\.?\s*),?\s*'
     r'(?:concurring|dissenting|separate)\b',
+    re.IGNORECASE
+)
+
+# New regex patterns for votes extraction (FIX-1)
+RE_VOTES_CONTENT = re.compile(
+    r'(?:concur|dissent|dissenting|separate opinion|'
+    r'JJ\.|J\.\,|J\.\:|C\.J\.|'
+    r'Chairman|Presiding|'
+    r'\(on leave\)|\(on official leave\)|\(no part\)|'
+    r'[A-Z]{2,}(?:\s+[A-Z]{2,})*(?:\s+[A-Z]\.)?(?:\s+[A-Z]{2,})*)',
+    re.IGNORECASE
+)
+
+RE_FOOTNOTE_START = re.compile(r'^(?:\d+\s+|\*|\")')
+
+# FIX-4: Regex for attorney designation lines in counsel block
+RE_COUNSEL_DESIGNATION = re.compile(
+    r'for\s+(?:the\s+)?(?:petitioner|respondent|plaintiff|defendant|appellant|appellee|'
+    r'accused|complainant|private|intervenor|oppositor)',
+    re.IGNORECASE
+)
+
+# FIX-5: Regex for parties termination (legal designations)
+RE_PARTIES_END = re.compile(
+    r'(?:respondents?|petitioners?|plaintiffs?|defendants?|appellants?|appellees?|'
+    r'accused-appellants?|intervenors?|oppositors?)\s*[.,;]*\s*$',
     re.IGNORECASE
 )
 
@@ -115,9 +141,9 @@ class SectionExtractor:
             # Convert char offsets to line numbers
             start_line_num = self.loader.char_to_line(cn.start_char)
             end_line_num = self.loader.char_to_line(cn.end_char - 1)  # exclusive end
-            # Get page numbers
-            start_page = self.loader.get_page(cn.start_char)
-            end_page = self.loader.get_page(cn.end_char - 1)
+            # Get page numbers - FIX-6: Convert char offset to line number first
+            start_page = self.loader.get_page(self.loader.char_to_line(cn.start_char))
+            end_page = self.loader.get_page(self.loader.char_to_line(cn.end_char - 1))
             
             case_num_ann = Annotation(
                 label="case_number",
@@ -137,9 +163,9 @@ class SectionExtractor:
             # Convert char offsets to line numbers
             start_line_num = self.loader.char_to_line(boundary.date_start_char)
             end_line_num = self.loader.char_to_line(boundary.date_end_char - 1)
-            # Get page numbers
-            start_page = self.loader.get_page(boundary.date_start_char)
-            end_page = self.loader.get_page(boundary.date_end_char - 1)
+            # Get page numbers - FIX-6: Convert char offset to line number first
+            start_page = self.loader.get_page(self.loader.char_to_line(boundary.date_start_char))
+            end_page = self.loader.get_page(self.loader.char_to_line(boundary.date_end_char - 1))
             
             date_ann = Annotation(
                 label="date",
@@ -189,12 +215,45 @@ class SectionExtractor:
                 # Find start of parties (line after last bracket)
                 parties_start_idx = last_bracket_idx + 1
                 if parties_start_idx < len(lines):
-                    # Find end of parties (before syllabus or doc_type)
+                    # FIX-5: Smart parties extraction with footnote protection
+                    # Parties blocks end with a legal designation like "respondents.", "petitioner.", etc.
+                    # When footnotes from the previous case appear on the same page, they get absorbed.
+                    # Stop parties when we hit:
+                    # (a) RE_SYLLABUS or RE_DOC_TYPE (existing)
+                    # (b) A line ending with a legal designation (RE_PARTIES_END), then blank line
+                    # (c) Footnote-like lines (start with digit+space, quote, or asterisk)
                     parties_end_idx = parties_start_idx
+                    seen_designation = False
+                    
                     while parties_end_idx < len(lines):
                         line_num, text = lines[parties_end_idx]
+                        
+                        # Stop condition (a): RE_SYLLABUS or RE_DOC_TYPE
                         if RE_SYLLABUS.match(text) or RE_DOC_TYPE.match(text):
                             break
+                        
+                        # Check if this line ends with a legal designation
+                        if RE_PARTIES_END.search(text):
+                            seen_designation = True
+                            parties_end_idx += 1
+                            # After the designation line, skip trailing blank lines and stop
+                            while parties_end_idx < len(lines) and not lines[parties_end_idx][1].strip():
+                                parties_end_idx += 1
+                            break
+                        
+                        # Stop at footnote-like lines (start with digit+space, quote, or asterisk)
+                        if RE_FOOTNOTE_START.match(text):
+                            # If we've seen a designation, this is definitely a footnote
+                            if seen_designation:
+                                break
+                            # If no designation yet, might still be part of parties
+                            # (some party names might start with quotes or numbers)
+                            # But typically footnotes appear after the designation
+                        
+                        # If we've seen a designation and this is a blank line, stop
+                        if seen_designation and not text.strip():
+                            break
+                        
                         parties_end_idx += 1
                     
                     # Extract parties text
@@ -275,12 +334,73 @@ class SectionExtractor:
             # Check for counsel header
             if RE_COUNSEL_HEADER.match(text):
                 counsel_start_idx = current_idx
+                # FIX-4: Smart counsel extraction with early termination
+                # The counsel block has a predictable structure:
+                # Line 1: "APPEARANCES OF COUNSEL" (or "APPEARANCE OF COUNSEL")
+                # Lines 2+: Attorney names with "for petitioner/respondent/..." designations
+                # Stop counsel when we hit:
+                # (a) RE_DOC_TYPE
+                # (b) Two consecutive blank lines
+                # (c) A line that matches RE_DIVISION or RE_CASE_BRACKET (next case boundary)
+                # (d) 30 lines scanned without finding any "for" designation (safety limit)
                 counsel_end_idx = current_idx + 1
-                while counsel_end_idx < len(lines):
+                lines_scanned = 0
+                max_lines_to_scan = 30
+                consecutive_blank_lines = 0
+                seen_designation = False
+                
+                while counsel_end_idx < len(lines) and lines_scanned < max_lines_to_scan:
                     end_line_num, end_text = lines[counsel_end_idx]
+                    
+                    # Stop condition (a): RE_DOC_TYPE
                     if RE_DOC_TYPE.match(end_text):
                         break
+                    
+                    # Stop condition (c): RE_DIVISION or RE_CASE_BRACKET (next case)
+                    if RE_DIVISION.match(end_text) or RE_CASE_BRACKET.match(end_text):
+                        break
+                    
+                    # Check for blank line
+                    if not end_text.strip():
+                        consecutive_blank_lines += 1
+                        # Stop condition (b): Two consecutive blank lines
+                        if consecutive_blank_lines >= 2 and seen_designation:
+                            # Go back to last non-blank line
+                            while counsel_end_idx > counsel_start_idx + 1 and not lines[counsel_end_idx-1][1].strip():
+                                counsel_end_idx -= 1
+                            break
+                    else:
+                        consecutive_blank_lines = 0
+                        lines_scanned += 1
+                        
+                        # Check if this line contains an attorney designation
+                        if RE_COUNSEL_DESIGNATION.search(end_text):
+                            seen_designation = True
+                        
+                        # If we've seen a designation and this line doesn't have one,
+                        # it might be the end of the counsel block
+                        if seen_designation and not RE_COUNSEL_DESIGNATION.search(end_text):
+                            # Check if this looks like a continuation of an attorney name
+                            # (e.g., multi-line attorney entries)
+                            # Simple heuristic: if line is short (< 50 chars) and doesn't start with footnote marker
+                            if len(end_text.strip()) < 50 and not RE_FOOTNOTE_START.match(end_text):
+                                # Might still be part of counsel (e.g., second line of attorney name)
+                                pass
+                            else:
+                                # Probably not part of counsel, stop here
+                                break
+                    
                     counsel_end_idx += 1
+                
+                # If we never saw a designation (unusual formatting), fall back to RE_DOC_TYPE termination
+                if not seen_designation:
+                    # Reset and use original logic (stop at RE_DOC_TYPE)
+                    counsel_end_idx = current_idx + 1
+                    while counsel_end_idx < len(lines):
+                        end_line_num, end_text = lines[counsel_end_idx]
+                        if RE_DOC_TYPE.match(end_text):
+                            break
+                        counsel_end_idx += 1
                 
                 # Get counsel text
                 start_line_num = lines[counsel_start_idx][0]
@@ -411,6 +531,8 @@ class SectionExtractor:
                 
                 # Find end_decision
                 # Scan for SO ORDERED or other ending patterns
+                # FIX-3: Track the LAST match, not the first, to avoid matching quoted
+                # "SO ORDERED." from lower court orders within the decision text
                 end_decision_line = None
                 end_decision_text = None
                 
@@ -418,20 +540,20 @@ class SectionExtractor:
                     if RE_SO_ORDERED.match(text):
                         end_decision_line = line_num
                         end_decision_text = text
-                        break
+                        # Do NOT break - continue to find the last occurrence
                     # Check for other ending patterns
-                    if re.search(r'is\s+(ACQUITTED|DISMISSED|AFFIRMED)\.\s*No costs\.', text, re.IGNORECASE):
+                    elif re.search(r'is\s+(ACQUITTED|DISMISSED|AFFIRMED)\.\s*No costs\.', text, re.IGNORECASE):
                         end_decision_line = line_num
                         end_decision_text = text
-                        break
-                    if re.search(r'This decision is immediately executory\.', text, re.IGNORECASE):
+                        # Do NOT break - continue to find the last occurrence
+                    elif re.search(r'This decision is immediately executory\.', text, re.IGNORECASE):
                         end_decision_line = line_num
                         end_decision_text = text
-                        break
-                    if re.search(r'It is so ordered\.', text, re.IGNORECASE):
+                        # Do NOT break - continue to find the last occurrence
+                    elif re.search(r'It is so ordered\.', text, re.IGNORECASE):
                         end_decision_line = line_num
                         end_decision_text = text
-                        break
+                        # Do NOT break - continue to find the last occurrence
                 
                 # If no explicit end marker found, use last content line before votes
                 if not end_decision_line:
@@ -458,31 +580,96 @@ class SectionExtractor:
                     )
                     extracted_case.annotations.append(end_decision_ann)
                     
-                    # Extract votes: lines after end_decision until separate opinion or end of case
+                    # FIX-1: Extract votes with strict termination strategy
                     votes_start_line = end_decision_line + 1
                     votes_lines = []
-                    for line_num, text in lines:
-                        if line_num >= votes_start_line and line_num <= boundary.end_line:
-                            votes_lines.append((line_num, text))
                     
-                    # Find where votes end (separate opinion or end of case)
-                    votes_end_idx = 0
-                    while votes_end_idx < len(votes_lines):
-                        line_num, text = votes_lines[votes_end_idx]
-                        if RE_SEPARATE_OPINION.match(text):
+                    # Find the index of votes_start_line in lines list
+                    votes_start_idx = -1
+                    for i, (line_num, text) in enumerate(lines):
+                        if line_num >= votes_start_line:
+                            votes_start_idx = i
                             break
-                        votes_end_idx += 1
                     
-                    votes_text_lines = []
-                    if votes_end_idx > 0:
-                        votes_text_lines = votes_lines[:votes_end_idx]
-                        # Remove trailing blank lines
-                        while votes_text_lines and not votes_text_lines[-1][1].strip():
-                            votes_text_lines.pop()
+                    if votes_start_idx >= 0:
+                        # Collect votes with strict termination conditions
+                        consecutive_blank_lines = 0
+                        non_blank_votes_count = 0
+                        max_non_blank_lines = 15  # Votes are never longer than ~10 lines
+                        in_votes_section = False
+                        votes_end_idx = votes_start_idx
+                        separate_opinion_idx = None  # Track where RE_SEPARATE_OPINION was found
+
+                        for i in range(votes_start_idx, len(lines)):
+                            line_num, text = lines[i]
+                            
+                            # Stop conditions (in order of priority):
+                            # 1. RE_SEPARATE_OPINION (existing check)
+                            if RE_SEPARATE_OPINION.match(text):
+                                separate_opinion_idx = i
+                                break
+                            
+                            # 2. RE_DIVISION or RE_CASE_BRACKET (next case start)
+                            if RE_DIVISION.match(text) or RE_CASE_BRACKET.match(text):
+                                break
+                            
+                            # 3. Two consecutive blank lines (double blank = section break)
+                            if not text.strip():
+                                consecutive_blank_lines += 1
+                                if consecutive_blank_lines >= 2 and in_votes_section:
+                                    # Go back to last non-blank line
+                                    while votes_end_idx > votes_start_idx and not lines[votes_end_idx-1][1].strip():
+                                        votes_end_idx -= 1
+                                    break
+                            else:
+                                consecutive_blank_lines = 0
+                                
+                                # 4. Maximum 15 non-blank lines
+                                non_blank_votes_count += 1
+                                if non_blank_votes_count > max_non_blank_lines:
+                                    break
+                                
+                                # Check if this line looks like a votes line
+                                is_votes_line = RE_VOTES_CONTENT.search(text) is not None
+                                
+                                # Skip footnote lines
+                                if RE_FOOTNOTE_START.match(text):
+                                    # If we're already in votes section, stop at footnotes
+                                    if in_votes_section:
+                                        break
+                                    # Otherwise skip this line
+                                    continue
+                                
+                                # If this looks like a votes line, add it
+                                if is_votes_line:
+                                    in_votes_section = True
+                                    votes_lines.append((line_num, text))
+                                    votes_end_idx = i + 1
+                                elif in_votes_section:
+                                    # We were in votes section but this line doesn't look like votes
+                                    # Could be the end of votes (e.g., a stray line)
+                                    # Check if it's a short line that might still be part of votes
+                                    if len(text.strip()) < 50 and not RE_FOOTNOTE_START.match(text):
+                                        # Might still be part of votes (e.g., "concur," on its own line)
+                                        votes_lines.append((line_num, text))
+                                        votes_end_idx = i + 1
+                                    else:
+                                        # Not a votes line, stop here
+                                        break
+                                else:
+                                    # Not a votes line and we haven't started votes section yet
+                                    # Skip leading non-votes lines (there's usually 1 blank line between
+                                    # "SO ORDERED." and the concurrence)
+                                    pass
                         
-                        if votes_text_lines:
-                            start_line_num = votes_text_lines[0][0]
-                            end_line_num = votes_text_lines[-1][0]
+                        # Remove trailing blank lines from votes_lines
+                        while votes_lines and not votes_lines[-1][1].strip():
+                            votes_lines.pop()
+                        
+                        # Create votes annotation if we found any votes lines
+                        if votes_lines:
+                            start_line_num = votes_lines[0][0]
+                            end_line_num = votes_lines[-1][0]
                             start_char = self.loader.line_col_to_char(start_line_num, 0)
                             end_line_text = self.loader.get_line_text(end_line_num)
                             end_char = self.loader.line_col_to_char(end_line_num, len(end_line_text))
@@ -498,85 +685,107 @@ class SectionExtractor:
                                 group=None
                             )
                             extracted_case.annotations.append(votes_ann)
-                    
-                    # Check for separate opinions
-                    if votes_end_idx < len(votes_lines):
-                        # There's a separate opinion
-                        sep_opinion_line_num, sep_opinion_text = votes_lines[votes_end_idx]
-                        start_opinion_ann = self._make_annotation(
-                            label="start_opinion",
-                            text=sep_opinion_text,
-                            start_line=sep_opinion_line_num,
-                            end_line=sep_opinion_line_num,
-                            group=None
-                        )
-                        extracted_case.annotations.append(start_opinion_ann)
                         
-                        # Find end_opinion (last non-blank line before next start_opinion or end of case)
-                        opinion_lines = votes_lines[votes_end_idx:]
-                        end_opinion_idx = 0
-                        while end_opinion_idx < len(opinion_lines):
-                            line_num, text = opinion_lines[end_opinion_idx]
-                            # Check if this is another separate opinion
-                            if end_opinion_idx > 0 and RE_SEPARATE_OPINION.match(text):
-                                break
-                            end_opinion_idx += 1
+                        # Check for separate opinions
+                        # Use the tracked index if votes loop broke at RE_SEPARATE_OPINION,
+                        # otherwise scan forward from votes_end_idx (up to 10 lines)
+                        opinion_check_idx = separate_opinion_idx
+                        if opinion_check_idx is None:
+                            # Scan forward from votes_end_idx to find a nearby opinion
+                            for scan_idx in range(votes_end_idx, min(votes_end_idx + 10, len(lines))):
+                                scan_line_num, scan_text = lines[scan_idx]
+                                if scan_text.strip() and RE_SEPARATE_OPINION.match(scan_text):
+                                    opinion_check_idx = scan_idx
+                                    break
+                                # Stop scanning if we hit a division or case bracket
+                                if scan_text.strip() and (RE_DIVISION.match(scan_text) or RE_CASE_BRACKET.match(scan_text)):
+                                    break
+
+                        if opinion_check_idx is not None and opinion_check_idx < len(lines):
+                            sep_line_num, sep_text = lines[opinion_check_idx]
+                            if RE_SEPARATE_OPINION.match(sep_text):
+                                # There's a separate opinion
+                                start_opinion_ann = self._make_annotation(
+                                    label="start_opinion",
+                                    text=sep_text,
+                                    start_line=sep_line_num,
+                                    end_line=sep_line_num,
+                                    group=None
+                                )
+                                extracted_case.annotations.append(start_opinion_ann)
+                                
+                                # Find end_opinion (last non-blank line before next start_opinion or end of case)
+                                opinion_lines = lines[opinion_check_idx:]
+                                end_opinion_idx = 0
+                                while end_opinion_idx < len(opinion_lines):
+                                    line_num, text = opinion_lines[end_opinion_idx]
+                                    # Check if this is another separate opinion
+                                    if end_opinion_idx > 0 and RE_SEPARATE_OPINION.match(text):
+                                        break
+                                    end_opinion_idx += 1
+                                
+                                # Go back to find last non-blank line
+                                last_opinion_idx = end_opinion_idx - 1
+                                while last_opinion_idx >= 0 and not opinion_lines[last_opinion_idx][1].strip():
+                                    last_opinion_idx -= 1
+                                
+                                if last_opinion_idx >= 0:
+                                    end_line_num, end_text = opinion_lines[last_opinion_idx]
+                                    end_opinion_ann = self._make_annotation(
+                                        label="end_opinion",
+                                        text=end_text.strip(),
+                                        start_line=end_line_num,
+                                        end_line=end_line_num,
+                                        group=None
+                                    )
+                                    extracted_case.annotations.append(end_opinion_ann)
+                                    
+                                    # end_of_case is same as end_opinion
+                                    end_of_case_ann = self._make_annotation(
+                                        label="end_of_case",
+                                        text=end_text.strip(),
+                                        start_line=end_line_num,
+                                        end_line=end_line_num,
+                                        group=None
+                                    )
+                                    extracted_case.annotations.append(end_of_case_ann)
+                                else:
+                                    # No end_opinion found, use end_decision as end_of_case
+                                    end_of_case_ann = self._make_annotation(
+                                        label="end_of_case",
+                                        text=end_decision_text,
+                                        start_line=end_decision_line,
+                                        end_line=end_decision_line,
+                                        group=None
+                                    )
+                                    extracted_case.annotations.append(end_of_case_ann)
+                            else:
+                                # opinion_check_idx exists but line doesn't match RE_SEPARATE_OPINION
+                                # Fall through to "no separate opinion" logic
+                                pass
                         
-                        # Go back to find last non-blank line
-                        last_opinion_idx = end_opinion_idx - 1
-                        while last_opinion_idx >= 0 and not opinion_lines[last_opinion_idx][1].strip():
-                            last_opinion_idx -= 1
-                        
-                        if last_opinion_idx >= 0:
-                            end_line_num, end_text = opinion_lines[last_opinion_idx]
-                            end_opinion_ann = self._make_annotation(
-                                label="end_opinion",
-                                text=end_text.strip(),
-                                start_line=end_line_num,
-                                end_line=end_line_num,
-                                group=None
-                            )
-                            extracted_case.annotations.append(end_opinion_ann)
-                            
-                            # end_of_case is same as end_opinion
-                            end_of_case_ann = self._make_annotation(
-                                label="end_of_case",
-                                text=end_text.strip(),
-                                start_line=end_line_num,
-                                end_line=end_line_num,
-                                group=None
-                            )
+                        # If we get here, either opinion_check_idx is None or the line doesn't match RE_SEPARATE_OPINION
+                        # Use the existing "no separate opinion" logic
+                        if opinion_check_idx is None or (opinion_check_idx < len(lines) and not RE_SEPARATE_OPINION.match(lines[opinion_check_idx][1])):
+                            # No separate opinion, end_of_case is last line of votes or end_decision
+                            if votes_lines:
+                                last_votes_line_num, last_votes_text = votes_lines[-1]
+                                end_of_case_ann = self._make_annotation(
+                                    label="end_of_case",
+                                    text=last_votes_text.strip(),
+                                    start_line=last_votes_line_num,
+                                    end_line=last_votes_line_num,
+                                    group=None
+                                )
+                            else:
+                                end_of_case_ann = self._make_annotation(
+                                    label="end_of_case",
+                                    text=end_decision_text,
+                                    start_line=end_decision_line,
+                                    end_line=end_decision_line,
+                                    group=None
+                                )
                             extracted_case.annotations.append(end_of_case_ann)
-                        else:
-                            # No end_opinion found, use end_decision as end_of_case
-                            end_of_case_ann = self._make_annotation(
-                                label="end_of_case",
-                                text=end_decision_text,
-                                start_line=end_decision_line,
-                                end_line=end_decision_line,
-                                group=None
-                            )
-                            extracted_case.annotations.append(end_of_case_ann)
-                    else:
-                        # No separate opinion, end_of_case is last line of votes or end_decision
-                        if votes_text_lines:
-                            last_votes_line_num, last_votes_text = votes_text_lines[-1]
-                            end_of_case_ann = self._make_annotation(
-                                label="end_of_case",
-                                text=last_votes_text.strip(),
-                                start_line=last_votes_line_num,
-                                end_line=last_votes_line_num,
-                                group=None
-                            )
-                        else:
-                            end_of_case_ann = self._make_annotation(
-                                label="end_of_case",
-                                text=end_decision_text,
-                                start_line=end_decision_line,
-                                end_line=end_decision_line,
-                                group=None
-                            )
-                        extracted_case.annotations.append(end_of_case_ann)
         
         return extracted_case
     
@@ -607,9 +816,9 @@ class SectionExtractor:
                 end_line_text = self.loader.get_line_text(end_line)
                 end_char = self.loader.line_col_to_char(end_line, len(end_line_text))
         
-        # Get page numbers
-        start_page = self.loader.get_page(start_char)
-        end_page = self.loader.get_page(end_char - 1)  # exclusive end
+        # Get page numbers - FIX-6: Convert char offset to line number first
+        start_page = self.loader.get_page(self.loader.char_to_line(start_char))
+        end_page = self.loader.get_page(self.loader.char_to_line(end_char - 1))  # exclusive end
         
         return Annotation(
             label=label,

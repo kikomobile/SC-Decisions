@@ -117,7 +117,13 @@ Rules:
 - Offsets are character positions within the text you receive (0-based).
 - For multi-line fields (parties, votes), include newline characters in the text.
 - For ponente, extract ONLY the surname (e.g., "GUTIERREZ, JR." not "GUTIERREZ, JR., J.:").
+- For "votes", extract the voting line that appears near the end of the decision, typically formatted as:
+  "CONCURRING AND DISSENTING" headers followed by justice names, or
+  a single line like "SO ORDERED." followed by justice surnames, or
+  lines listing justices with their vote status (e.g., "(On official leave)", "(No part)", "concur", "dissent").
+  Include the full voting block from the first justice name to the last.
 - If a field is not present in the text, omit it from the output.
+- The case text is enclosed in <case_text> tags. Only extract text from within those tags.
 """
 
 
@@ -219,10 +225,11 @@ def extract_with_llm(
 
 {existing_context}
 
-Case text:
+<case_text>
 {case_text}
+</case_text>
 
-Return JSON with the "labels" array containing only the requested labels."""
+Extract ONLY from the text between <case_text> tags. Return JSON with the "labels" array."""
     
     # Prepare messages
     messages = [
@@ -347,8 +354,8 @@ def determine_labels_to_re_extract(
     
     # Map failed checks to affected labels
     check_to_labels = {
-        "required_labels_present": ["start_of_case", "case_number", "date", "division", 
-                                   "doc_type", "start_decision", "end_decision", "votes", "end_of_case"],
+        "required_labels_present": ["case_number", "date", "division", 
+                                   "doc_type", "votes"],
         "parties_length": ["parties"],
         "votes_length": ["votes"],
         "ponente_known": ["ponente"],
@@ -372,14 +379,18 @@ def determine_labels_to_re_extract(
     
     # Remove duplicates and ensure we only extract valid labels
     valid_labels = [
-        "start_of_case", "case_number", "date", "division", "parties",
+        "case_number", "date", "division", "parties",
         "start_syllabus", "end_syllabus", "counsel", "ponente", "doc_type",
-        "start_decision", "end_decision", "votes", "start_opinion",
-        "end_opinion", "end_of_case"
+        "votes", "start_opinion", "end_opinion"
     ]
     
     labels_to_re_extract = [label for label in set(labels_to_re_extract) 
                            if label in valid_labels]
+    
+    # Filter out boundary labels that should never be re-extracted by LLM
+    boundary_labels = {"start_of_case", "end_of_case", "start_decision", "end_decision"}
+    labels_to_re_extract = [label for label in labels_to_re_extract 
+                           if label not in boundary_labels]
     
     return labels_to_re_extract
 
