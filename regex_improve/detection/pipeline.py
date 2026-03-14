@@ -8,6 +8,7 @@ import json
 import logging
 import sys
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
@@ -29,6 +30,11 @@ from .llm_fallback import (
     get_client
 )
 from .diagnostics import run_diagnostics, DiagnosticReport
+from .manifest import (
+    load_manifest, save_manifest, get_volume_entry, update_volume_entry,
+    should_reprocess, load_previous_predictions, merge_annotations,
+    _get_source_mtime, PIPELINE_VERSION
+)
 
 # Setup logging
 logging.basicConfig(
@@ -57,10 +63,11 @@ def process_volume(
     llm_budget: float = 5.0,
     confidence_threshold: float = 0.7,
     skip_llm: bool = False,
-    budget: Optional[BudgetTracker] = None
+    budget: Optional[BudgetTracker] = None,
+    force: bool = False
 ) -> PipelineResult:
     """Process a single volume through the detection pipeline.
-    
+
     Args:
         volume_path: Path to volume text file
         output_path: Optional path to write JSON output
@@ -69,15 +76,52 @@ def process_volume(
         skip_llm: If True, skip LLM fallback entirely
         budget: Optional BudgetTracker to share across multiple volumes. If None,
                 a new BudgetTracker will be created with llm_budget.
-        
+        force: If True, reprocess even if manifest says volume is up to date.
+
     Returns:
         PipelineResult with all processing results
     """
     logger.info(f"Processing volume: {volume_path.name}")
-    
+
     # Initialize budget tracker
     if budget is None:
         budget = BudgetTracker(total_budget=llm_budget)
+
+    # Manifest check: skip if up to date
+    volume_name = volume_path.stem
+    output_dir = output_path.parent if output_path else None
+    manifest = {}
+    if output_dir:
+        manifest = load_manifest(output_dir)
+        needs_reprocess, reason = should_reprocess(manifest, volume_name, volume_path, force)
+        if not needs_reprocess:
+            logger.info(f"Volume {volume_name} is up to date, skipping ({reason})")
+            # Return a cached result from previous predictions
+            entry = get_volume_entry(manifest, volume_name)
+            prev_data = load_previous_predictions(output_dir, entry["prediction_file"])
+            cached_cases = []
+            if prev_data:
+                for vol in prev_data.get("volumes", []):
+                    cached_cases.extend(vol.get("cases", []))
+            return PipelineResult(
+                volume_name=volume_path.name,
+                cases=cached_cases,
+                corrections=[],
+                llm_calls=entry.get("llm_calls", 0),
+                llm_cost=0.0,
+                confidence_summary={
+                    "high_confidence": entry.get("total_cases", 0),
+                    "low_confidence": 0,
+                    "threshold": entry.get("confidence_threshold", confidence_threshold)
+                },
+                metadata={
+                    "total_cases": entry.get("total_cases", 0),
+                    "cached": True,
+                    "cache_reason": reason
+                }
+            )
+        else:
+            logger.info(f"Reprocessing {volume_name}: {reason}")
     
     # Step 1: Preprocess
     logger.info("Step 1: Preprocessing volume...")
@@ -165,7 +209,8 @@ def process_volume(
                 "end_char": ann.end_char,
                 "start_page": ann.start_page,
                 "end_page": ann.end_page,
-                "group": ann.group
+                "group": ann.group,
+                "detection_method": "regex"
             }
             annotation_dicts.append(ann_dict)
         
@@ -182,7 +227,32 @@ def process_volume(
         corrected_cases.append(corrected_case)
     
     logger.info(f"Applied {len(all_corrections)} OCR corrections")
-    
+
+    # Step 4b: Merge with previous predictions (preserve cached LLM results)
+    if output_dir and not force:
+        entry = get_volume_entry(manifest, volume_name)
+        if entry and entry.get("prediction_file"):
+            prev_data = load_previous_predictions(output_dir, entry["prediction_file"])
+            if prev_data:
+                # Build a map of previous cases by case_id
+                prev_cases_map = {}
+                for vol in prev_data.get("volumes", []):
+                    for prev_case in vol.get("cases", []):
+                        prev_cases_map[prev_case["case_id"]] = prev_case
+
+                merged_count = 0
+                for case in corrected_cases:
+                    case_id = case["case_id"]
+                    if case_id in prev_cases_map:
+                        prev_anns = prev_cases_map[case_id].get("annotations", [])
+                        case["annotations"] = merge_annotations(
+                            prev_anns, case["annotations"], force_llm_rerun=False
+                        )
+                        merged_count += 1
+
+                if merged_count > 0:
+                    logger.info(f"Merged annotations for {merged_count} cases with previous predictions")
+
     # Step 5: Confidence scoring
     logger.info("Step 5: Scoring confidence...")
     
@@ -234,6 +304,21 @@ def process_volume(
                 if not labels_to_re_extract:
                     logger.debug(f"No labels to re-extract for case {case_id}")
                     continue
+
+                # Filter out labels that already have cached LLM results (unless force)
+                if not force:
+                    existing_llm_labels = {
+                        ann["label"] for ann in annotations
+                        if ann.get("detection_method") == "llm"
+                    }
+                    if existing_llm_labels:
+                        labels_to_re_extract = [
+                            l for l in labels_to_re_extract
+                            if l not in existing_llm_labels
+                        ]
+                        if not labels_to_re_extract:
+                            logger.debug(f"All labels for case {case_id} already have cached LLM results")
+                            continue
                 
                 # Get case text from volume
                 # Find start_of_case annotation to get case start position
@@ -329,7 +414,7 @@ def process_volume(
         "status": "auto_extracted",
         "volumes": [volume_data],
         "metadata": {
-            "pipeline_version": "1.0",
+            "pipeline_version": PIPELINE_VERSION,
             "llm_budget_used": llm_cost,
             "llm_calls": llm_calls,
             "confidence_threshold": confidence_threshold,
@@ -359,10 +444,29 @@ def process_volume(
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(final_output, f, indent=2, ensure_ascii=False)
             logger.info(f"Output written successfully")
+
+            # Update manifest
+            has_llm = any(
+                ann.get("detection_method") == "llm"
+                for case in all_cases
+                for ann in case.get("annotations", [])
+            )
+            update_volume_entry(
+                manifest, volume_name,
+                prediction_file=output_path.name,
+                total_cases=len(all_cases),
+                llm_calls=llm_calls,
+                has_llm_labels=has_llm,
+                confidence_threshold=confidence_threshold,
+                source_file_mtime=_get_source_mtime(volume_path)
+            )
+            save_manifest(output_path.parent, manifest)
+            logger.info(f"Manifest updated for {volume_name}")
+
         except Exception as e:
             logger.error(f"Failed to write output: {e}")
             raise
-    
+
     # Create result summary
     result = PipelineResult(
         volume_name=volume_path.name,
@@ -410,10 +514,11 @@ def process_batch(
     volume_range: Tuple[int, int] = (226, 961),
     llm_budget: float = 5.0,
     confidence_threshold: float = 0.7,
-    skip_llm: bool = False
+    skip_llm: bool = False,
+    force: bool = False
 ) -> Dict[str, Any]:
     """Process multiple volumes in batch mode.
-    
+
     Args:
         volume_dir: Directory containing volume text files
         output_dir: Directory to write JSON outputs
@@ -421,7 +526,8 @@ def process_batch(
         llm_budget: LLM budget in USD (shared across all volumes)
         confidence_threshold: Confidence threshold for LLM fallback
         skip_llm: If True, skip LLM fallback entirely
-        
+        force: If True, reprocess even if manifest says volumes are up to date
+
     Returns:
         Summary dictionary with batch results
     """
@@ -467,7 +573,8 @@ def process_batch(
                 llm_budget=llm_budget,
                 confidence_threshold=confidence_threshold,
                 skip_llm=skip_llm,
-                budget=budget
+                budget=budget,
+                force=force
             )
             results.append(result)
             
@@ -730,22 +837,25 @@ if __name__ == "__main__":
     parser.add_argument("--budget", type=float, default=5.0, help="LLM budget in USD")
     parser.add_argument("--threshold", type=float, default=0.7, 
                        help="Confidence threshold for LLM fallback")
-    parser.add_argument("--skip-llm", action="store_true", 
+    parser.add_argument("--skip-llm", action="store_true",
                        help="Skip LLM fallback entirely")
-    
+    parser.add_argument("--force", action="store_true",
+                       help="Force reprocessing even if manifest says up to date")
+
     args = parser.parse_args()
-    
+
     # Set default output path if not provided
     if not args.output:
         args.output = args.volume_path.with_suffix(".predicted.json")
-    
+
     try:
         result = process_volume(
             volume_path=args.volume_path,
             output_path=args.output,
             llm_budget=args.budget,
             confidence_threshold=args.threshold,
-            skip_llm=args.skip_llm
+            skip_llm=args.skip_llm,
+            force=args.force
         )
         print(f"\nPipeline completed successfully!")
         print(f"Output written to: {args.output}")

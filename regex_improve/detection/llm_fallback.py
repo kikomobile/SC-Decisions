@@ -321,7 +321,8 @@ def convert_llm_labels_to_annotations(
             "end_char": end_char,
             "start_page": None,  # Will be filled by pipeline
             "end_page": None,    # Will be filled by pipeline
-            "group": None        # Default, can be updated later
+            "group": None,       # Default, can be updated later
+            "detection_method": "llm"
         }
         
         # Special handling for grouped labels

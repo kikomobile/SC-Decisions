@@ -1,0 +1,1795 @@
+{
+  "format": "correction_log",
+  "version": 1,
+  "volume_name": "Volume_234.txt",
+  "source_predictions": "C:/Users/Gamers/GitHub/SC-Decisions/downloads/predictions/Volume_234_predicted.json",
+  "summary": {
+    "total_predicted_annotations": 756,
+    "total_corrections": 81,
+    "cases_reviewed": 57,
+    "cases_with_corrections": 22,
+    "cases_perfect": 35,
+    "by_type": {
+      "span_adjusted": 27,
+      "removed": 9,
+      "added": 42,
+      "label_changed": 3
+    },
+    "by_label": {
+      "votes": 13,
+      "end_decision": 10,
+      "parties": 9,
+      "end_of_case": 9,
+      "end_opinion": 9,
+      "case_number": 6,
+      "start_opinion": 6,
+      "end_syllabus": 4,
+      "ponente": 4,
+      "doc_type": 4,
+      "date": 3,
+      "counsel": 2,
+      "start_decision": 2
+    }
+  },
+  "corrections": [
+    {
+      "case_id": "vol234_case_0",
+      "type": "span_adjusted",
+      "label": "parties",
+      "original": {
+        "label": "parties",
+        "text": "MERCEDES S. MARASIGAN, represented by Attorney-\nin-fact EUGENIA S. MARASIGAN, plaintiff-appellee,",
+        "group": 0,
+        "start_char": 21769,
+        "end_char": 21866,
+        "start_line": 567,
+        "end_line": 568,
+        "start_page": 20,
+        "end_page": 20
+      },
+      "corrected": {
+        "label": "parties",
+        "text": "MERCEDES S. MARASIGAN, represented by Attorney-\nin-fact EUGENIA S. MARASIGAN, plaintiff-appellee,\nvs. HON. AMADEO H. CRUZ, DR. JOSE R. CRUZ\nand JOSE R. REYES MEMORIAL HOSPITAL,\ndefendants-appellants.",
+        "group": 0,
+        "start_char": 21769,
+        "end_char": 21968,
+        "start_line": 567,
+        "end_line": 571,
+        "start_page": 20,
+        "end_page": 20
+      },
+      "context": "TERMINED IN THE\\nSUPREME COURT OF THE PHILIPPINES\\n\\nFIRST DIVISION\\n[G.R. No. 1.-40648. May 20, 1987]\\n\\nMERCEDES S. MARASIGAN, represented by Attorney-\\nin-fact EUGENIA S. MARASIGAN, plaintiff-appellee,\\nvs. HON. AMADEO H. CRUZ, DR. JOSE R. CRUZ\\nand JOSE R. REYES MEMORIAL HOSPITAL,\\ndefendants-appellant"
+    },
+    {
+      "case_id": "vol234_case_0",
+      "type": "span_adjusted",
+      "label": "case_number",
+      "original": {
+        "label": "case_number",
+        "text": "G.R. No. 1",
+        "group": 0,
+        "start_char": 21735,
+        "end_char": 21745,
+        "start_line": 565,
+        "end_line": 565,
+        "start_page": 20,
+        "end_page": 20
+      },
+      "corrected": {
+        "label": "case_number",
+        "text": "G.R. No. 1.-40648",
+        "group": 0,
+        "start_char": 21735,
+        "end_char": 21752,
+        "start_line": 565,
+        "end_line": 565,
+        "start_page": 20,
+        "end_page": 20
+      },
+      "context": "-- Page 20 ---\\nREPORT OF CASES\\n\\nDETERMINED IN THE\\nSUPREME COURT OF THE PHILIPPINES\\n\\nFIRST DIVISION\\n[G.R. No. 1.-40648. May 20, 1987]\\n\\nMERCEDES S. MARASIGAN, represented by Attorney-\\nin-fact EUGENIA S. MARASIGAN"
+    },
+    {
+      "case_id": "vol234_case_0",
+      "type": "span_adjusted",
+      "label": "date",
+      "original": {
+        "label": "date",
+        "text": "-40648. May 20, 1987",
+        "group": null,
+        "start_char": 21746,
+        "end_char": 21766,
+        "start_line": 565,
+        "end_line": 565,
+        "start_page": 20,
+        "end_page": 20
+      },
+      "corrected": {
+        "label": "date",
+        "text": "May 20, 1987",
+        "group": null,
+        "start_char": 21754,
+        "end_char": 21766,
+        "start_line": 565,
+        "end_line": 565,
+        "start_page": 20,
+        "end_page": 20
+      },
+      "context": "---\\nREPORT OF CASES\\n\\nDETERMINED IN THE\\nSUPREME COURT OF THE PHILIPPINES\\n\\nFIRST DIVISION\\n[G.R. No. 1.-40648. May 20, 1987]\\n\\nMERCEDES S. MARASIGAN, represented by Attorney-\\nin-fact EUGENIA S. MARASIGAN, plaintiff-appellee,"
+    },
+    {
+      "case_id": "vol234_case_1",
+      "type": "span_adjusted",
+      "label": "votes",
+      "original": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Yap, Fernan, Narvasa, Melencio-\nHerrera, Gutierrez, Jr., Cruz, Paras, Feliciano, Gancayco,\nPadilla, Bidin, and Cortes, JJ., concur.\n\n3! U8. vs. Billedo, 32 Phil. 574; People v. Matbagon, 60 Phil. 887.",
+        "group": null,
+        "start_char": 64462,
+        "end_char": 64679,
+        "start_line": 1603,
+        "end_line": 1607,
+        "start_page": 41,
+        "end_page": 41
+      },
+      "corrected": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Yap, Fernan, Narvasa, Melencio-\nHerrera, Gutierrez, Jr., Cruz, Paras, Feliciano, Gancayco,\nPadilla, Bidin, and Cortes, JJ., concur.",
+        "group": null,
+        "start_char": 64462,
+        "end_char": 64610,
+        "start_line": 1603,
+        "end_line": 1605,
+        "start_page": 41,
+        "end_page": 41
+      },
+      "context": "creased\\nto TWENTY-FIVE THOUSAND (225,000.00) PESOS. With\\ncosts against the appellant.\\n\\nSO ORDERED.\\n\\nTeehankee, C.J., Yap, Fernan, Narvasa, Melencio-\\nHerrera, Gutierrez, Jr., Cruz, Paras, Feliciano, Gancayco,\\nPadilla, Bidin, and Cortes, JJ., concur.\\n\\n3! U8. vs. Billedo, 32 Phil. 574; People v. Matbagon, 60 Phil. 887.\\n32 CONST., Art. III, Sec. 19 (E).\\n33 People v. Deus, No. 63729, May 31, 1985, 136 SCRA 660 (1985).\\n"
+    },
+    {
+      "case_id": "vol234_case_1",
+      "type": "span_adjusted",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_of_case",
+        "text": "3! U8. vs. Billedo, 32 Phil. 574; People v. Matbagon, 60 Phil. 887.",
+        "group": null,
+        "start_char": 64612,
+        "end_char": 64679,
+        "start_line": 1607,
+        "end_line": 1607,
+        "start_page": 41,
+        "end_page": 41
+      },
+      "corrected": {
+        "label": "end_of_case",
+        "text": "33 People v. Deus, No. 63729, May 31, 1985, 136 SCRA 660 (1985).",
+        "group": null,
+        "start_char": 64714,
+        "end_char": 64778,
+        "start_line": 1609,
+        "end_line": 1609,
+        "start_page": 41,
+        "end_page": 41
+      },
+      "context": "errera, Gutierrez, Jr., Cruz, Paras, Feliciano, Gancayco,\\nPadilla, Bidin, and Cortes, JJ., concur.\\n\\n3! U8. vs. Billedo, 32 Phil. 574; People v. Matbagon, 60 Phil. 887.\\n32 CONST., Art. III, Sec. 19 (E).\\n33 People v. Deus, No. 63729, May 31, 1985, 136 SCRA 660 (1985).\\n"
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "span_adjusted",
+      "label": "parties",
+      "original": {
+        "label": "parties",
+        "text": "ELISA R. MANOTOK, PATRICIA L. TIONGSON,\nmarried to CAYETANO TIONGSON, PACITA L.\nGO married to EDUARDO GO, ROBERTO\nLAPERAL WI, MIGUEL SISON, PHILIP L.\nMANOTOK, MARIA TERESA L. MANOTOK,\nJOSE CLEMENTE MANOTOK, RAMON\nSEVERINO MANOTOK, JOSE MARIA\nMANOTOK and JESUS JUDE MANOTOK, JR.,\nassisted by their father and judicial guardian, JESUS\nMANOTOK, MILAGROS V. MANOTOK, IGNACIO\nVv. MANOTOK, JR., FELISA V. MANOTOK,\nMARY-ANN Y. MANOTOK, MICHAEL V.\nMANOTOK, FAUSTO C. MANOTOK, SEVERINO\nMANOTOK III, and JESUS MANOTOK, petitioners,",
+        "group": 0,
+        "start_char": 206695,
+        "end_char": 207216,
+        "start_line": 4873,
+        "end_line": 4886,
+        "start_page": 110,
+        "end_page": 110
+      },
+      "corrected": {
+        "label": "parties",
+        "text": "ELISA R. MANOTOK, PATRICIA L. TIONGSON,\nmarried to CAYETANO TIONGSON, PACITA L.\nGO married to EDUARDO GO, ROBERTO\nLAPERAL WI, MIGUEL SISON, PHILIP L.\nMANOTOK, MARIA TERESA L. MANOTOK,\nJOSE CLEMENTE MANOTOK, RAMON\nSEVERINO MANOTOK, JOSE MARIA\nMANOTOK and JESUS JUDE MANOTOK, JR.,\nassisted by their father and judicial guardian, JESUS\nMANOTOK, MILAGROS V. MANOTOK, IGNACIO\nVv. MANOTOK, JR., FELISA V. MANOTOK,\nMARY-ANN Y. MANOTOK, MICHAEL V.\nMANOTOK, FAUSTO C. MANOTOK, SEVERINO\nMANOTOK III, and JESUS MANOTOK, petitioners,\nvs. NATIONAL HOUSING AUTHORITY and\nREPUBLIC OF THE PHILIPPINES, respondents.",
+        "group": 0,
+        "start_char": 206695,
+        "end_char": 207293,
+        "start_line": 4873,
+        "end_line": 4888,
+        "start_page": 110,
+        "end_page": 110
+      },
+      "context": "s, JJ., concur,\\n\\nFernan (Chairman), J., on official leave.\\n\\nEN BANC\\n[G.R. No. 55166. May 21, 1987]\\n\\nELISA R. MANOTOK, PATRICIA L. TIONGSON,\\nmarried to CAYETANO TIONGSON, PACITA L.\\nGO married to EDUARDO GO, ROBERTO\\nLAPERAL WI, MIGUEL SISON, PHILIP L.\\nMANOTOK, MARIA TERESA L. MANOTOK,\\nJOSE CLEMENTE MANOTOK, RAMON\\nSEVERINO MANOTOK, JOSE MARIA\\nMANOTOK and JESUS JUDE MANOTOK, JR.,\\nassisted by their father and judicial guardian, JESUS\\nMANOTOK, MILAGROS V. MANOTOK, IGNACIO\\nVv. MANOTOK, JR., FELISA V. MANOTOK,\\nMARY-ANN Y. MANOTOK, MICHAEL V.\\nMANOTOK, FAUSTO C. MANOTOK, SEVERINO\\nMANOTOK III, and JESUS MANOTOK, petitioners,\\nvs. NATIONAL HOUSING AUTHORITY and\\nREPUBLIC OF THE PHILIPPINES, respondents.\\n\\n\\n--- Page 111 ---\\n92\\n"
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "removed",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_of_case",
+        "text": "ponente, was concurred in by Zaldivar, Sanchez, Barredo and Villamor, JJ.",
+        "group": null,
+        "start_char": 253598,
+        "end_char": 253671,
+        "start_line": 5912,
+        "end_line": 5912,
+        "start_page": 131,
+        "end_page": 131
+      },
+      "corrected": null,
+      "context": "rein the Congress through Republic\\n\\n' 31 SCRA 413, 506 (1970), The majority judgment with Fernando,\\nponente, was concurred in by Zaldivar, Sanchez, Barredo and Villamor, JJ.\\nwith Makalintal, J. concurring in the result. Concepcion, C.J. and Reyes,\\nJ.B.L., Dizon and Castro,"
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "removed",
+      "label": "end_opinion",
+      "original": {
+        "label": "end_opinion",
+        "text": "ponente, was concurred in by Zaldivar, Sanchez, Barredo and Villamor, JJ.",
+        "group": null,
+        "start_char": 253598,
+        "end_char": 253671,
+        "start_line": 5912,
+        "end_line": 5912,
+        "start_page": 131,
+        "end_page": 131
+      },
+      "corrected": null,
+      "context": "rein the Congress through Republic\\n\\n' 31 SCRA 413, 506 (1970), The majority judgment with Fernando,\\nponente, was concurred in by Zaldivar, Sanchez, Barredo and Villamor, JJ.\\nwith Makalintal, J. concurring in the result. Concepcion, C.J. and Reyes,\\nJ.B.L., Dizon and Castro,"
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "added",
+      "label": "case_number",
+      "original": null,
+      "corrected": {
+        "label": "case_number",
+        "text": "G.R. No. 55167",
+        "group": 1,
+        "start_char": 207378,
+        "end_char": 207392,
+        "start_line": 4898,
+        "end_line": 4898,
+        "start_page": 111,
+        "end_page": 111
+      },
+      "context": "S, respondents.\\n\\n\\n--- Page 111 ---\\n92\\n\\nPHILIPPINE REPORTS\\n\\nManotok vs. National Housing Authority\\n\\n(G.R. No. 55167. May 21, 1987]\\n\\nPATRICIA L. TIONGSON, PACITA L. GO, assisted by\\n\\nher husband EDWARD GO, ROBERTO LAP"
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "added",
+      "label": "end_of_case",
+      "original": null,
+      "corrected": {
+        "label": "end_of_case",
+        "text": "necessity of the taking for public use.",
+        "group": null,
+        "start_char": 258651,
+        "end_char": 258690,
+        "start_line": 6021,
+        "end_line": 6021,
+        "start_page": 134,
+        "end_page": 134
+      },
+      "context": "may not capriciously or arbitrarily single\\nout specific property for condemnation and must show the\\nnecessity of the taking for public use.\\n\\nEN BANC\\n[G.R. No. 55339. May 21, 1987]\\n\\nPEOPLE OF THE PHILIPPINES, plaintiff-appellee,\\nvs. LEOQDEG"
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "added",
+      "label": "parties",
+      "original": null,
+      "corrected": {
+        "label": "parties",
+        "text": "PATRICIA L. TIONGSON, PACITA L. GO, assisted by\n\nher husband EDWARD GO, ROBERTO LAPERAL\nIII, ELISA R. MANOTOK, ROSA R. MANOTOK,\nJESUS R. MANOTOK, MIGUEL A. B. SISON,\nSEVERINO MANOTOK II, JOSE MARIA\nMANOTOK and JESUS MANOTOK, represented\nherein by their father and judicial guardian JESUS\nMANOTOK, JR., IGNACIO R. MANOTOK,\nSEVERINO MANOTOK, JR., and FAUSTO C.\nMANOTOK, petitioners, vs. NATIONAL HOUSING\nAUTHORITY and the REPUBLIC OF THE\nPHILIPPINES, respondents.",
+        "group": 1,
+        "start_char": 207409,
+        "end_char": 207870,
+        "start_line": 4900,
+        "end_line": 4912,
+        "start_page": 111,
+        "end_page": 111
+      },
+      "context": "---\\n92\\n\\nPHILIPPINE REPORTS\\n\\nManotok vs. National Housing Authority\\n\\n(G.R. No. 55167. May 21, 1987]\\n\\nPATRICIA L. TIONGSON, PACITA L. GO, assisted by\\n\\nher husband EDWARD GO, ROBERTO LAPERAL\\nIII, ELISA R. MANOTOK, ROSA R. MANOTOK,\\nJESUS R. MANOTOK, MIGUEL A. B. SISON,\\nSEVERINO MANOTOK II, JOSE MARIA\\nMANOTOK and JESUS MANOTOK, represented\\nherein by their father and judicial guardian JESUS\\nMANOTOK, JR., IGNACIO R. MANOTOK,\\nSEVERINO MANOTOK, JR., and FAUSTO C.\\nMANOTOK, petitioners, vs. NATIONAL HOUSING\\nAUTHORITY and the REPUBLIC OF THE\\nPHILIPPINES, respondents.\\n\\nSYLLABUS\\n\\n1. POLITICAL LAW; INHERENT POWERS OF THE STATE;\\n\\nPOWER OF EMINENT DOMAIN; LIMITATIONS.— "
+    },
+    {
+      "case_id": "vol234_case_8",
+      "type": "added",
+      "label": "end_opinion",
+      "original": null,
+      "corrected": {
+        "label": "end_opinion",
+        "text": "necessity of the taking for public use.",
+        "group": null,
+        "start_char": 258651,
+        "end_char": 258690,
+        "start_line": 6021,
+        "end_line": 6021,
+        "start_page": 134,
+        "end_page": 134
+      },
+      "context": "may not capriciously or arbitrarily single\\nout specific property for condemnation and must show the\\nnecessity of the taking for public use.\\n\\nEN BANC\\n[G.R. No. 55339. May 21, 1987]\\n\\nPEOPLE OF THE PHILIPPINES, plaintiff-appellee,\\nvs. LEOQDEG"
+    },
+    {
+      "case_id": "vol234_case_9",
+      "type": "span_adjusted",
+      "label": "parties",
+      "original": {
+        "label": "parties",
+        "text": "PEOPLE OF THE PHILIPPINES, plaintiff-appellee,",
+        "group": 0,
+        "start_char": 258732,
+        "end_char": 258778,
+        "start_line": 6026,
+        "end_line": 6026,
+        "start_page": 134,
+        "end_page": 134
+      },
+      "corrected": {
+        "label": "parties",
+        "text": "PEOPLE OF THE PHILIPPINES, plaintiff-appellee,\nvs. LEOQDEGARIO LADRERA alias “RUBEN\nTAGALOG,” ANTONIO GUIBAO, ROGELIO\nSUPERADA, ROMY DE BASCO, HERMINIGILDO\nDE LOS SANTOS y HABITAN, JOSE GALBAN\ny MUNLON, JOSE BAUTISTA y POMBUENA,\nFELIZARDO VARGAS y GIPAYA, ROLANDO\nBLANCO y GUIBAO, and ALICE GRINO, accused.\nLEODEGARIO LADRERA alias “RUBEN\nTAGALOG,” ANTONIO GUIBAO,\nHERMINIGILDO DE LOS SANTOS y HABITAN,\nJOSE GALBAN y MUNLON, JOSE BAUTISTA y\nPOMBUENA, and FELIZARDO VARGAS y\nGIPAYA, accused-appellants.",
+        "group": 0,
+        "start_char": 258732,
+        "end_char": 259233,
+        "start_line": 6026,
+        "end_line": 6039,
+        "start_page": 134,
+        "end_page": 134
+      },
+      "context": " and must show the\\nnecessity of the taking for public use.\\n\\nEN BANC\\n[G.R. No. 55339. May 21, 1987]\\n\\nPEOPLE OF THE PHILIPPINES, plaintiff-appellee,\\nvs. LEOQDEGARIO LADRERA alias “RUBEN\\nTAGALOG,” ANTONIO GUIBAO, ROGELIO\\nSUPERADA, ROMY DE BASCO, HER"
+    },
+    {
+      "case_id": "vol234_case_11",
+      "type": "span_adjusted",
+      "label": "votes",
+      "original": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Narvasa, Melencio-Herrera, Gutierrez,\nJr., Cruz, Paras, Feliciano, Gancayco, Padilla, Bidin,\nSarmiento, and Cortes, JJ., concur.\n\nFernan, J., on leave.\n\n+ People v. Peralta, 25 SCRA 759.",
+        "group": null,
+        "start_char": 317131,
+        "end_char": 317334,
+        "start_line": 7371,
+        "end_line": 7377,
+        "start_page": 162,
+        "end_page": 162
+      },
+      "corrected": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Narvasa, Melencio-Herrera, Gutierrez,\nJr., Cruz, Paras, Feliciano, Gancayco, Padilla, Bidin,\nSarmiento, and Cortes, JJ., concur.\n\nFernan, J., on leave.",
+        "group": null,
+        "start_char": 317131,
+        "end_char": 317299,
+        "start_line": 7371,
+        "end_line": 7375,
+        "start_page": 162,
+        "end_page": 162
+      },
+      "context": "itioner\\nLucio Dulpo, the judgment of the Sandiganbayan is affirmed in\\nother respects.\\n\\nSO ORDERED.\\n\\nTeehankee, C.J., Narvasa, Melencio-Herrera, Gutierrez,\\nJr., Cruz, Paras, Feliciano, Gancayco, Padilla, Bidin,\\nSarmiento, and Cortes, JJ., concur.\\n\\nFernan, J., on leave.\\n\\n+ People v. Peralta, 25 SCRA 759.\\n4 People v. Escares, 94 Phil. 1045.\\n\\n\\n--- Page 163 ---\\n144 PHILIPPINE REPORTS\\n\\npane ne cn tn a\\n\\nOla"
+    },
+    {
+      "case_id": "vol234_case_11",
+      "type": "span_adjusted",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_of_case",
+        "text": "+ People v. Peralta, 25 SCRA 759.",
+        "group": null,
+        "start_char": 317301,
+        "end_char": 317334,
+        "start_line": 7377,
+        "end_line": 7377,
+        "start_page": 162,
+        "end_page": 162
+      },
+      "corrected": {
+        "label": "end_of_case",
+        "text": "4 People v. Escares, 94 Phil. 1045.",
+        "group": null,
+        "start_char": 317335,
+        "end_char": 317370,
+        "start_line": 7378,
+        "end_line": 7378,
+        "start_page": 162,
+        "end_page": 162
+      },
+      "context": "s, Feliciano, Gancayco, Padilla, Bidin,\\nSarmiento, and Cortes, JJ., concur.\\n\\nFernan, J., on leave.\\n\\n+ People v. Peralta, 25 SCRA 759.\\n4 People v. Escares, 94 Phil. 1045.\\n\\n\\n--- Page 163 ---\\n144 PHILIPPINE REPORTS\\n\\npane ne cn tn a\\n\\nOla"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "span_adjusted",
+      "label": "votes",
+      "original": {
+        "label": "votes",
+        "text": "Yap, Fernan, Narvasa, Melencio-Herrera, Gutierrez, Jr.,\nCruz, Paras, Feliciano, Bidin, Sarmiento, and Cortes, J/.,\nconcur.\n\nTechankee, C.J., concurs in a separate opinion.\n\nPadilla, J., took no part; counse! for petitioner O. Jimenez\nis my brother.\n\nSEPARATE OPINION\nTEEHANKEE, C./., concurring:\n\n[hail the Court’s unanimous judgment! vacating and setting\naside the penalty of death by electrocution summarily imposed\n\n' Save for My. Justice Padilla who inhibited from the case, as his brother\nwas counsel for petitioner Othoniel Jimenez.",
+        "group": null,
+        "start_char": 362143,
+        "end_char": 362681,
+        "start_line": 8394,
+        "end_line": 8410,
+        "start_page": 183,
+        "end_page": 183
+      },
+      "corrected": {
+        "label": "votes",
+        "text": "Yap, Fernan, Narvasa, Melencio-Herrera, Gutierrez, Jr.,\nCruz, Paras, Feliciano, Bidin, Sarmiento, and Cortes, J/.,\nconcur.\n\nTechankee, C.J., concurs in a separate opinion.\n\nPadilla, J., took no part; counse! for petitioner O. Jimenez\nis my brother.",
+        "group": null,
+        "start_char": 362143,
+        "end_char": 362391,
+        "start_line": 8394,
+        "end_line": 8401,
+        "start_page": 183,
+        "end_page": 183
+      },
+      "context": "d criminal case\\nshould be returned to them immediately. No pronouncement\\nas to costs.\\n\\nSO ORDERED.\\n\\nYap, Fernan, Narvasa, Melencio-Herrera, Gutierrez, Jr.,\\nCruz, Paras, Feliciano, Bidin, Sarmiento, and Cortes, J/.,\\nconcur.\\n\\nTechankee, C.J., concurs in a separate opinion.\\n\\nPadilla, J., took no part; counse! for petitioner O. Jimenez\\nis my brother.\\n\\nSEPARATE OPINION\\nTEEHANKEE, C./., concurring:\\n\\n[hail the Court’s unanimous judgment! vacating and setting\\naside the penalty of death by electrocution summarily imposed\\n\\n' Save for My. Justice Padilla who inhibited from the case, as his brother\\nwas counsel for petitioner Othoniel Jimenez.\\n\\n\\n--- Page 184 ---\\nVOL. 234, MAY 22, 1987 165\\n\\nOlaguer vs. Military Commission No. 34\\n\\nby responden"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "span_adjusted",
+      "label": "counsel",
+      "original": {
+        "label": "counsel",
+        "text": "APPEARANCES OF COUNSEL\n\nSabino Padilla, Jr. and Jose B. Puerto for petitioner Othoniel\nJimenez.\n\nFulgencio Factoran for petitioners Maclang and Magdalena\ndelos Santos-Maclang.\n\nRene Saguisag for petitioner Mac Aceron.\n\nJoaquin Misa for petitioner Ester Misa-Jimenez.\n\nJejomar Binay for petitioners Reynaldo Maclang and\nMagdalena delos Santos-Maclang.\n\nJaime Villanueva for petitioner Danilo R. de Ocampo.\n",
+        "group": null,
+        "start_char": 323839,
+        "end_char": 324244,
+        "start_line": 7532,
+        "end_line": 7547,
+        "start_page": 166,
+        "end_page": 166
+      },
+      "corrected": {
+        "label": "counsel",
+        "text": "APPEARANCES OF COUNSEL\n\nSabino Padilla, Jr. and Jose B. Puerto for petitioner Othoniel\nJimenez.\n\nFulgencio Factoran for petitioners Maclang and Magdalena\ndelos Santos-Maclang.\n\nRene Saguisag for petitioner Mac Aceron.\n\nJoaquin Misa for petitioner Ester Misa-Jimenez.\n\nJejomar Binay for petitioners Reynaldo Maclang and\nMagdalena delos Santos-Maclang.\n\nJaime Villanueva for petitioner Danilo R. de Ocampo.\n\nJoker P. Arroyo, Lorenzo M. Tafiada and Rene Sarmiento\nfor petitioners Eduardo Olaguer and Othoniel Jimenez.\n\nWigberto Tafiada for petitioners Olaguer and Maclang.",
+        "group": null,
+        "start_char": 323839,
+        "end_char": 324408,
+        "start_line": 7532,
+        "end_line": 7552,
+        "start_page": 166,
+        "end_page": 166
+      },
+      "context": "any charges.\\n\\n\\n--- Page 166 ---\\nVOL. 234, MAY 22, 1987 147\\n\\nOlaguer vs. Military Commission No, 34\\n\\nAPPEARANCES OF COUNSEL\\n\\nSabino Padilla, Jr. and Jose B. Puerto for petitioner Othoniel\\nJimenez.\\n\\nFulgencio Factoran for petitioners Maclang and Magdalena\\ndelos Santos-Maclang.\\n\\nRene Saguisag for petitioner Mac Aceron.\\n\\nJoaquin Misa for petitioner Ester Misa-Jimenez.\\n\\nJejomar Binay for petitioners Reynaldo Maclang and\\nMagdalena delos Santos-Maclang.\\n\\nJaime Villanueva for petitioner Danilo R. de Ocampo.\\n\\nJoker P. Arroyo, Lorenzo M. Tafiada and Rene Sarmiento\\nfor petitioners Eduardo Olaguer and Othoniel"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "span_adjusted",
+      "label": "end_syllabus",
+      "original": {
+        "label": "end_syllabus",
+        "text": "Olaguer vs. Military Commission No, 34",
+        "group": null,
+        "start_char": 323799,
+        "end_char": 323837,
+        "start_line": 7530,
+        "end_line": 7530,
+        "start_page": 166,
+        "end_page": 166
+      },
+      "corrected": {
+        "label": "end_syllabus",
+        "text": "detained indefinitely without any charges.",
+        "group": null,
+        "start_char": 323709,
+        "end_char": 323751,
+        "start_line": 7524,
+        "end_line": 7524,
+        "start_page": 165,
+        "end_page": 165
+      },
+      "context": "person be\\ndetained indefinitely without any charges.\\n\\n\\n--- Page 166 ---\\nVOL. 234, MAY 22, 1987 147\\n\\nOlaguer vs. Military Commission No, 34\\n\\nAPPEARANCES OF COUNSEL\\n\\nSabino Padilla, Jr. and Jose B. Puerto for petitioner Othoniel\\nJimenez.\\n\\nF"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "removed",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_of_case",
+        "text": "was counsel for petitioner Othoniel Jimenez.",
+        "group": null,
+        "start_char": 362637,
+        "end_char": 362681,
+        "start_line": 8410,
+        "end_line": 8410,
+        "start_page": 183,
+        "end_page": 183
+      },
+      "corrected": null,
+      "context": "ution summarily imposed\\n\\n' Save for My. Justice Padilla who inhibited from the case, as his brother\\nwas counsel for petitioner Othoniel Jimenez.\\n\\n\\n--- Page 184 ---\\nVOL. 234, MAY 22, 1987 165\\n\\nOlaguer vs. Military Commission No. 34\\n\\nby responden"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "added",
+      "label": "end_opinion",
+      "original": null,
+      "corrected": {
+        "label": "end_opinion",
+        "text": "18 Supra, see fn. 11.",
+        "group": null,
+        "start_char": 395785,
+        "end_char": 395806,
+        "start_line": 9109,
+        "end_line": 9109,
+        "start_page": 198,
+        "end_page": 198
+      },
+      "context": "corresponding\\nresponsibility, in short, upon their political maturity.”'®\\n\\nY Supra, par. 4 hereof.\\n\\n18 Supra, see fn. 11.\\n\\n\\n--- Page 199 ---\\n180 PHILIPPINE REPORTS\\nBataan Shipyard & Engineering Co., Inc. (BASECO) vs. PCGG"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "added",
+      "label": "parties",
+      "original": null,
+      "corrected": {
+        "label": "parties",
+        "text": "EDUARDO OLAGUER, OTHONIEL JIMENEZ,\nREYNALDO MACLANG and ESTER MISA-\nJIMENEZ, petitioners, vs. THE CHIEF OF STAFF,\nAFP, MILITARY COMMISSION NO. 34, JUDGE\nADVOCATE GENERAL, AFP, MINISTER OF\nNATIONAL DEFENSE and THE DYRECTOR OF\nPRISONS, respondents.",
+        "group": 1,
+        "start_char": 317912,
+        "end_char": 318158,
+        "start_line": 7404,
+        "end_line": 7410,
+        "start_page": 163,
+        "end_page": 163
+      },
+      "context": "MMISSION NO. 34 and THE MINISTER OF\\nNATIONAL DEFENSE, respondents.\\n\\n[G.R. No. 69882. May 22, 1987]\\n\\nEDUARDO OLAGUER, OTHONIEL JIMENEZ,\\nREYNALDO MACLANG and ESTER MISA-\\nJIMENEZ, petitioners, vs. THE CHIEF OF STAFF,\\nAFP, MILITARY COMMISSION NO. 34, JUDGE\\nADVOCATE GENERAL, AFP, MINISTER OF\\nNATIONAL DEFENSE and THE DYRECTOR OF\\nPRISONS, respondents.\\n\\nSYLLABUS\\n\\n1, REMEDIAL LAW; SPECIAL PROCEEDINGS; HABEAS\\nCORPUS; WHEN RELEASE OF THE PERSONS IN WHOS"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "added",
+      "label": "case_number",
+      "original": null,
+      "corrected": {
+        "label": "case_number",
+        "text": "G.R. No. 69882",
+        "group": 1,
+        "start_char": 317881,
+        "end_char": 317895,
+        "start_line": 7402,
+        "end_line": 7402,
+        "start_page": 163,
+        "end_page": 163
+      },
+      "context": "HE TRIAL COUNSEL OF MILITARY\\nCOMMISSION NO. 34 and THE MINISTER OF\\nNATIONAL DEFENSE, respondents.\\n\\n[G.R. No. 69882. May 22, 1987]\\n\\nEDUARDO OLAGUER, OTHONIEL JIMENEZ,\\nREYNALDO MACLANG and ESTER MISA-\\nJIMENEZ, petiti"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "added",
+      "label": "end_of_case",
+      "original": null,
+      "corrected": {
+        "label": "end_of_case",
+        "text": "18 Supra, see fn. 11.",
+        "group": null,
+        "start_char": 395785,
+        "end_char": 395806,
+        "start_line": 9109,
+        "end_line": 9109,
+        "start_page": 198,
+        "end_page": 198
+      },
+      "context": "corresponding\\nresponsibility, in short, upon their political maturity.”'®\\n\\nY Supra, par. 4 hereof.\\n\\n18 Supra, see fn. 11.\\n\\n\\n--- Page 199 ---\\n180 PHILIPPINE REPORTS\\nBataan Shipyard & Engineering Co., Inc. (BASECO) vs. PCGG"
+    },
+    {
+      "case_id": "vol234_case_12",
+      "type": "added",
+      "label": "start_opinion",
+      "original": null,
+      "corrected": {
+        "label": "start_opinion",
+        "text": "SEPARATE OPINION",
+        "group": null,
+        "start_char": 362393,
+        "end_char": 362409,
+        "start_line": 8403,
+        "end_line": 8403,
+        "start_page": 183,
+        "end_page": 183
+      },
+      "context": "n a separate opinion.\\n\\nPadilla, J., took no part; counse! for petitioner O. Jimenez\\nis my brother.\\n\\nSEPARATE OPINION\\nTEEHANKEE, C./., concurring:\\n\\n[hail the Court’s unanimous judgment! vacating and setting\\naside the "
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "label_changed",
+      "label": "end_opinion",
+      "original": {
+        "label": "end_decision",
+        "text": "and all suspicions concerning its motives.",
+        "group": null,
+        "start_char": 558148,
+        "end_char": 558190,
+        "start_line": 12840,
+        "end_line": 12840,
+        "start_page": 275,
+        "end_page": 275
+      },
+      "corrected": {
+        "label": "end_opinion",
+        "text": "and all suspicions concerning its motives.",
+        "group": null,
+        "start_char": 558148,
+        "end_char": 558190,
+        "start_line": 12840,
+        "end_line": 12840,
+        "start_page": 275,
+        "end_page": 275
+      },
+      "context": " it should not now be employed by the\\nPCGG, to remove all doubts regarding the legality of its acts\\nand all suspicions concerning its motives.\\n\\n\\n--- Page 276 ---\\nVOL. 234, MAY 28, 1987 257\\n\\nThe Court Administrator vs. Judge Hermoso\\nEN BANC\\n[A"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "span_adjusted",
+      "label": "end_syllabus",
+      "original": {
+        "label": "end_syllabus",
+        "text": "Bataan Shipyard & Engineering Co., Inc. (BASECO) vs. PCGG",
+        "group": null,
+        "start_char": 422247,
+        "end_char": 422304,
+        "start_line": 9651,
+        "end_line": 9651,
+        "start_page": 210,
+        "end_page": 210
+      },
+      "corrected": {
+        "label": "end_syllabus",
+        "text": "that he appears to own the BASECO shares.",
+        "group": null,
+        "start_char": 422158,
+        "end_char": 422199,
+        "start_line": 9646,
+        "end_line": 9646,
+        "start_page": 209,
+        "end_page": 209
+      },
+      "context": "tification\\nthat he appears to own the BASECO shares.\\n\\n\\n--- Page 210 ---\\nVOL. 234, MAY. 27, 1987 19]\\nBataan Shipyard & Engineering Co., Inc. (BASECO) vs. PCGG\\n\\nAPPEARANCES OF COUNSEL\\n\\nApostol, Bernas, Gumaru, Ona and Associates for\\npetitioner.\\nVicente G. Sis"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "end_decision",
+      "original": null,
+      "corrected": {
+        "label": "end_decision",
+        "text": "restraining order issued on October 14, 1986 is lifted.",
+        "group": null,
+        "start_char": 517145,
+        "end_char": 517200,
+        "start_line": 11960,
+        "end_line": 11960,
+        "start_page": 257,
+        "end_page": 257
+      },
+      "context": "its powers, or with grave abuse of discretion.\\n\\nWHEREFORE, the petition is dismissed. The temporary\\nrestraining order issued on October 14, 1986 is lifted.\\n\\nYap, Fernan, Paras, Gancayco, and Sarmiento, JJ., concur.\\nTeehankee, C.J. and Padilla, JJ., concur"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Yap, Fernan, Paras, Gancayco, and Sarmiento, JJ., concur.\nTeehankee, C.J. and Padilla, JJ., concur in separate opinions.\n\nMelencio-Herrera, J., concurs with qualifications in a separate\nopinion.\n\nFeliciano, J., joins Mime. Justice A.A.M. Herrera’s qualified\nconcurring opinioin.\n\nGutierrez, J., concurs and dissents in a separate opinion.\n\nBidin and Cortes, JJ., join Mr. Justice Hugo Gutierrez in\nhis concurring and dissenting opinion.\n\nCruz, J., dissents in a separate opinon.",
+        "group": null,
+        "start_char": 517202,
+        "end_char": 517680,
+        "start_line": 11962,
+        "end_line": 11976,
+        "start_page": 257,
+        "end_page": 257
+      },
+      "context": ", the petition is dismissed. The temporary\\nrestraining order issued on October 14, 1986 is lifted.\\n\\nYap, Fernan, Paras, Gancayco, and Sarmiento, JJ., concur.\\nTeehankee, C.J. and Padilla, JJ., concur in separate opinions.\\n\\nMelencio-Herrera, J., concurs with qualifications in a separate\\nopinion.\\n\\nFeliciano, J., joins Mime. Justice A.A.M. Herrera’s qualified\\nconcurring opinioin.\\n\\nGutierrez, J., concurs and dissents in a separate opinion.\\n\\nBidin and Cortes, JJ., join Mr. Justice Hugo Gutierrez in\\nhis concurring and dissenting opinion.\\n\\nCruz, J., dissents in a separate opinon.\\n\\nSEPARATE OPINION\\n\\nTEEHANKEE, C.J., concurring:\\n\\nI fully concur with the masterly opinion of Mr, Ju"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "start_opinion",
+      "original": null,
+      "corrected": {
+        "label": "start_opinion",
+        "text": "MELENCIO-HERRERA, J., concurring with qualifications:",
+        "group": null,
+        "start_char": 542028,
+        "end_char": 542081,
+        "start_line": 12484,
+        "end_line": 12484,
+        "start_page": 268,
+        "end_page": 268
+      },
+      "context": "aximum time granted it\\nfor the filing of the corresponding judicial action with the\\nSandiganbayan.\\n\\nMELENCIO-HERRERA, J., concurring with qualifications:\\n\\nI would like to qualify my concurrence in so far as the voting\\nof sequestered stock is concerned.\\n"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "start_opinion",
+      "original": null,
+      "corrected": {
+        "label": "start_opinion",
+        "text": "GUTIERREZ, JR., J., concurring and dissenting:",
+        "group": null,
+        "start_char": 546336,
+        "end_char": 546382,
+        "start_line": 12578,
+        "end_line": 12578,
+        "start_page": 270,
+        "end_page": 270
+      },
+      "context": "ugh the PCGG,\\nhas the right and even the duty to take-over full control and\\nsupervision of BASECO.\\n\\nGUTIERREZ, JR., J., concurring and dissenting:\\n\\nI concur, in part, in the crudite opinion penned for the Court\\nby my distinguished colleague Mr. J"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "end_opinion",
+      "original": null,
+      "corrected": {
+        "label": "end_opinion",
+        "text": "firm.",
+        "group": null,
+        "start_char": 555929,
+        "end_char": 555934,
+        "start_line": 12789,
+        "end_line": 12789,
+        "start_page": 274,
+        "end_page": 274
+      },
+      "context": "court, the PCGG must be enjoined from\\nexercising any and all acts of ownership over the sequestered\\nfirm.\\n\\nCRUZ, J., dissenting:\\n\\nMy brother Narvasa has written a truly outstanding decision\\nthat bespeaks a"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "start_opinion",
+      "original": null,
+      "corrected": {
+        "label": "start_opinion",
+        "text": "PADILLA, J., concurring:",
+        "group": null,
+        "start_char": 544552,
+        "end_char": 544576,
+        "start_line": 12538,
+        "end_line": 12538,
+        "start_page": 269,
+        "end_page": 269
+      },
+      "context": "rocess (Executive Order No.\\n14, May 7, 1986), and justice (Executive Order No. 2, March\\n12, 1986).\\n\\nPADILLA, J., concurring:\\n\\nThe majority opinion penned by Mr. Justice Narvasa maintains\\nand upholds the valid distinction bet"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "end_opinion",
+      "original": null,
+      "corrected": {
+        "label": "end_opinion",
+        "text": "supervision of BASECO.",
+        "group": null,
+        "start_char": 546312,
+        "end_char": 546334,
+        "start_line": 12576,
+        "end_line": 12576,
+        "start_page": 270,
+        "end_page": 270
+      },
+      "context": "of the Philippines, through the PCGG,\\nhas the right and even the duty to take-over full control and\\nsupervision of BASECO.\\n\\nGUTIERREZ, JR., J., concurring and dissenting:\\n\\nI concur, in part, in the crudite opinion penned f"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "end_opinion",
+      "original": null,
+      "corrected": {
+        "label": "end_opinion",
+        "text": "Sandiganbayan.",
+        "group": null,
+        "start_char": 542012,
+        "end_char": 542026,
+        "start_line": 12482,
+        "end_line": 12482,
+        "start_page": 268,
+        "end_page": 268
+      },
+      "context": "vailing of the maximum time granted it\\nfor the filing of the corresponding judicial action with the\\nSandiganbayan.\\n\\nMELENCIO-HERRERA, J., concurring with qualifications:\\n\\nI would like to qualify my concurrence in s"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "start_opinion",
+      "original": null,
+      "corrected": {
+        "label": "start_opinion",
+        "text": "SEPARATE OPINION",
+        "group": null,
+        "start_char": 517682,
+        "end_char": 517698,
+        "start_line": 11978,
+        "end_line": 11978,
+        "start_page": 257,
+        "end_page": 257
+      },
+      "context": "Hugo Gutierrez in\\nhis concurring and dissenting opinion.\\n\\nCruz, J., dissents in a separate opinon.\\n\\nSEPARATE OPINION\\n\\nTEEHANKEE, C.J., concurring:\\n\\nI fully concur with the masterly opinion of Mr, Justice Narvasa.\\nIn "
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "start_opinion",
+      "original": null,
+      "corrected": {
+        "label": "start_opinion",
+        "text": "CRUZ, J., dissenting:",
+        "group": null,
+        "start_char": 555936,
+        "end_char": 555957,
+        "start_line": 12791,
+        "end_line": 12791,
+        "start_page": 274,
+        "end_page": 274
+      },
+      "context": "the PCGG must be enjoined from\\nexercising any and all acts of ownership over the sequestered\\nfirm.\\n\\nCRUZ, J., dissenting:\\n\\nMy brother Narvasa has written a truly outstanding decision\\nthat bespeaks a penetrating and analyt"
+    },
+    {
+      "case_id": "vol234_case_13",
+      "type": "added",
+      "label": "end_opinion",
+      "original": null,
+      "corrected": {
+        "label": "end_opinion",
+        "text": "12, 1986).",
+        "group": null,
+        "start_char": 544540,
+        "end_char": 544550,
+        "start_line": 12536,
+        "end_line": 12536,
+        "start_page": 269,
+        "end_page": 269
+      },
+      "context": "rness, due process (Executive Order No.\\n14, May 7, 1986), and justice (Executive Order No. 2, March\\n12, 1986).\\n\\nPADILLA, J., concurring:\\n\\nThe majority opinion penned by Mr. Justice Narvasa maintains\\nand upholds"
+    },
+    {
+      "case_id": "vol234_case_14",
+      "type": "added",
+      "label": "case_number",
+      "original": null,
+      "corrected": {
+        "label": "case_number",
+        "text": "Adin. Case No. 2656",
+        "group": 1,
+        "start_char": 558496,
+        "end_char": 558515,
+        "start_line": 12855,
+        "end_line": 12855,
+        "start_page": 276,
+        "end_page": 276
+      },
+      "context": "onal Trial\\nCourt, Branch 168, Pasig, Metro Manila and\\nROMULO FLORES, Deputy Sheriff, respondents.\\n\\n{Adin. Case No. 2656. May 28, 1987]\\n\\nLILIAN CABRERA ANG, complainant, vs. RODOLFO\\nG. HERMOSO, Judge, Regional Trial Cour"
+    },
+    {
+      "case_id": "vol234_case_14",
+      "type": "added",
+      "label": "parties",
+      "original": null,
+      "corrected": {
+        "label": "parties",
+        "text": "LILIAN CABRERA ANG, complainant, vs. RODOLFO\nG. HERMOSO, Judge, Regional Trial Court, Branch\n168, Pasig, Metro Manila, respondent.",
+        "group": 1,
+        "start_char": 558532,
+        "end_char": 558662,
+        "start_line": 12857,
+        "end_line": 12859,
+        "start_page": 276,
+        "end_page": 276
+      },
+      "context": " Metro Manila and\\nROMULO FLORES, Deputy Sheriff, respondents.\\n\\n{Adin. Case No. 2656. May 28, 1987]\\n\\nLILIAN CABRERA ANG, complainant, vs. RODOLFO\\nG. HERMOSO, Judge, Regional Trial Court, Branch\\n168, Pasig, Metro Manila, respondent.\\n\\nSYLLABUS\\n\\n1. CRIMINAL LAW; ANTI-GRAFT AND CORRUPT PRACTICES;\\nACT OF DEMANDING AND RECEIVING SUM OF"
+    },
+    {
+      "case_id": "vol234_case_15",
+      "type": "removed",
+      "label": "end_decision",
+      "original": {
+        "label": "end_decision",
+        "text": "Lorenzo F., p. 39, 1981.",
+        "group": null,
+        "start_char": 597369,
+        "end_char": 597393,
+        "start_line": 13775,
+        "end_line": 13775,
+        "start_page": 295,
+        "end_page": 295
+      },
+      "corrected": null,
+      "context": "nd Feliciano, JJ., on leave.\\n\\n'6 Institutes 1, 1, pr. as cited in Handbook for Roman Law, Miravite,\\nLorenzo F., p. 39, 1981.\\n\\n\\n--- Page 296 ---\\nVOL, 234, MAY 29, 1987 277\\n\\nDe Aparicio vs. Paraguya\\n\\nFIRST DIVISION\\n[G.R. No. L"
+    },
+    {
+      "case_id": "vol234_case_15",
+      "type": "added",
+      "label": "end_decision",
+      "original": null,
+      "corrected": {
+        "label": "end_decision",
+        "text": "ordered.",
+        "group": null,
+        "start_char": 597116,
+        "end_char": 597124,
+        "start_line": 13766,
+        "end_line": 13766,
+        "start_page": 295,
+        "end_page": 295
+      },
+      "context": "REVERSED and that of the trial court is\\nreinstated, without any pronouncement as to costs. It is so\\nordered.\\n\\nTeehankee, C.J., Yap, Narvasa, Melencio-Herrera,\\nGutierrez, Jr., Paras, Gancayco, Padilla, Bidin, "
+    },
+    {
+      "case_id": "vol234_case_15",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Yap, Narvasa, Melencio-Herrera,\nGutierrez, Jr., Paras, Gancayco, Padilla, Bidin, Sarmiento,\nand Cortes, JJ., concur.\n\nFernan and Feliciano, JJ., on leave.",
+        "group": null,
+        "start_char": 597126,
+        "end_char": 597297,
+        "start_line": 13768,
+        "end_line": 13772,
+        "start_page": 295,
+        "end_page": 295
+      },
+      "context": "nd that of the trial court is\\nreinstated, without any pronouncement as to costs. It is so\\nordered.\\n\\nTeehankee, C.J., Yap, Narvasa, Melencio-Herrera,\\nGutierrez, Jr., Paras, Gancayco, Padilla, Bidin, Sarmiento,\\nand Cortes, JJ., concur.\\n\\nFernan and Feliciano, JJ., on leave.\\n\\n'6 Institutes 1, 1, pr. as cited in Handbook for Roman Law, Miravite,\\nLorenzo F., p. 39, 1981.\\n\\n\\n-"
+    },
+    {
+      "case_id": "vol234_case_17",
+      "type": "span_adjusted",
+      "label": "end_decision",
+      "original": {
+        "label": "end_decision",
+        "text": "Bidin, JJ., concur.",
+        "group": null,
+        "start_char": 659493,
+        "end_char": 659512,
+        "start_line": 15398,
+        "end_line": 15398,
+        "start_page": 329,
+        "end_page": 329
+      },
+      "corrected": {
+        "label": "end_decision",
+        "text": "of the Court of Industrial Relations is SET ASIDE.",
+        "group": null,
+        "start_char": 659386,
+        "end_char": 659436,
+        "start_line": 15395,
+        "end_line": 15395,
+        "start_page": 329,
+        "end_page": 329
+      },
+      "context": "Court of Industrial Relations is SET ASIDE.\\n\\nFernan (Chairman), Gutierrez, Jr., Paras, Padilla, and\\nBidin, JJ., concur.\\n\\nSECOND DIVISION\\n[G.R. No. L-35598. May 29, 1987]\\n\\nPEOPLE OF THE PHILIPPINES, plaintiff-appellee, v"
+    },
+    {
+      "case_id": "vol234_case_17",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Fernan (Chairman), Gutierrez, Jr., Paras, Padilla, and\nBidin, JJ., concur.",
+        "group": null,
+        "start_char": 659438,
+        "end_char": 659512,
+        "start_line": 15397,
+        "end_line": 15398,
+        "start_page": 329,
+        "end_page": 329
+      },
+      "context": "he petition is granted. The assailed resolution\\nof the Court of Industrial Relations is SET ASIDE.\\n\\nFernan (Chairman), Gutierrez, Jr., Paras, Padilla, and\\nBidin, JJ., concur.\\n\\nSECOND DIVISION\\n[G.R. No. L-35598. May 29, 1987]\\n\\nPEOPLE OF THE PHILIPPINES, plaintiff-appellee, v"
+    },
+    {
+      "case_id": "vol234_case_19",
+      "type": "span_adjusted",
+      "label": "parties",
+      "original": {
+        "label": "parties",
+        "text": "THE PEOPLE OF THE PHILIPPINES, plaintiff-appellee,",
+        "group": 0,
+        "start_char": 680150,
+        "end_char": 680200,
+        "start_line": 15951,
+        "end_line": 15951,
+        "start_page": 340,
+        "end_page": 340
+      },
+      "corrected": {
+        "label": "parties",
+        "text": "THE PEOPLE OF THE PHILIPPINES, plaintiff-appellee,\nvs. FELIPE INOT, defendant-appellant.",
+        "group": 0,
+        "start_char": 680150,
+        "end_char": 680238,
+        "start_line": 15951,
+        "end_line": 15952,
+        "start_page": 340,
+        "end_page": 340
+      },
+      "context": "0 ---\\nVOL. 234, MAY 29, 1987 321\\n\\nPeople vs. Inot\\nSECOND DIVISION\\n[G.R. No. L-36790, May 29, 1987]\\n\\nTHE PEOPLE OF THE PHILIPPINES, plaintiff-appellee,\\nvs. FELIPE INOT, defendant-appellant.\\n\\nSYLLABUS\\n\\n1, REMEDIAL LAW; EVIDENCE; ALIBI; HOW ESTABLISHED."
+    },
+    {
+      "case_id": "vol234_case_23",
+      "type": "span_adjusted",
+      "label": "case_number",
+      "original": {
+        "label": "case_number",
+        "text": "G.R. Nos. L-45492",
+        "group": 0,
+        "start_char": 738984,
+        "end_char": 739001,
+        "start_line": 17333,
+        "end_line": 17333,
+        "start_page": 369,
+        "end_page": 369
+      },
+      "corrected": {
+        "label": "case_number",
+        "text": "G.R. Nos. L-45492 & L-45493",
+        "group": 0,
+        "start_char": 738984,
+        "end_char": 739011,
+        "start_line": 17333,
+        "end_line": 17333,
+        "start_page": 369,
+        "end_page": 369
+      },
+      "context": "s, Gancayco, Padilla,\\nBidin, and Sarmiento, JJ., concur,\\n\\nFeliciano, J., on leave.\\n\\nFIRST DIVISION\\n[G.R. Nos. L-45492 & L-45493. May 29, 1987]\\n\\nERNESTO ASUNCION, petitioner, vs. HON. COURT OF\\nAPPEALS, ARSENIO MUNEZ, A"
+    },
+    {
+      "case_id": "vol234_case_23",
+      "type": "span_adjusted",
+      "label": "date",
+      "original": {
+        "label": "date",
+        "text": "& L-45493. May 29, 1987",
+        "group": null,
+        "start_char": 739002,
+        "end_char": 739025,
+        "start_line": 17333,
+        "end_line": 17333,
+        "start_page": 369,
+        "end_page": 369
+      },
+      "corrected": {
+        "label": "date",
+        "text": "May 29, 1987",
+        "group": null,
+        "start_char": 739013,
+        "end_char": 739025,
+        "start_line": 17333,
+        "end_line": 17333,
+        "start_page": 369,
+        "end_page": 369
+      },
+      "context": "la,\\nBidin, and Sarmiento, JJ., concur,\\n\\nFeliciano, J., on leave.\\n\\nFIRST DIVISION\\n[G.R. Nos. L-45492 & L-45493. May 29, 1987]\\n\\nERNESTO ASUNCION, petitioner, vs. HON. COURT OF\\nAPPEALS, ARSENIO MUNEZ, ANASTACIA DE\\nCLARO VDA. D"
+    },
+    {
+      "case_id": "vol234_case_24",
+      "type": "span_adjusted",
+      "label": "end_decision",
+      "original": {
+        "label": "end_decision",
+        "text": "Feliciano, J., on leave.",
+        "group": null,
+        "start_char": 768161,
+        "end_char": 768185,
+        "start_line": 17987,
+        "end_line": 17987,
+        "start_page": 383,
+        "end_page": 383
+      },
+      "corrected": {
+        "label": "end_decision",
+        "text": "the petitioner.",
+        "group": null,
+        "start_char": 768065,
+        "end_char": 768080,
+        "start_line": 17982,
+        "end_line": 17982,
+        "start_page": 383,
+        "end_page": 383
+      },
+      "context": "nst\\nthe petitioner.\\n\\nYap (Chairman), Melencio-Herrera, Cruz, Gancayco, and\\nSarmiento, JJ., concur.\\n\\nFeliciano, J., on leave.\\n\\nEN BANC\\n[G.R. No. L-49088. May 29, 1987]\\n\\nJOSE V. IGNACIO, petitioner, vs. HON.\\nBUENAVENTURA J. GU"
+    },
+    {
+      "case_id": "vol234_case_24",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Yap (Chairman), Melencio-Herrera, Cruz, Gancayco, and\nSarmiento, JJ., concur.\n\nFeliciano, J., on leave.",
+        "group": null,
+        "start_char": 768082,
+        "end_char": 768185,
+        "start_line": 17984,
+        "end_line": 17987,
+        "start_page": 383,
+        "end_page": 383
+      },
+      "context": "als subject thereof\\nbeing in accord with the facts and the law, with costs against\\nthe petitioner.\\n\\nYap (Chairman), Melencio-Herrera, Cruz, Gancayco, and\\nSarmiento, JJ., concur.\\n\\nFeliciano, J., on leave.\\n\\nEN BANC\\n[G.R. No. L-49088. May 29, 1987]\\n\\nJOSE V. IGNACIO, petitioner, vs. HON.\\nBUENAVENTURA J. GU"
+    },
+    {
+      "case_id": "vol234_case_26",
+      "type": "span_adjusted",
+      "label": "end_decision",
+      "original": {
+        "label": "end_decision",
+        "text": "Feliciano, J., on leave.",
+        "group": null,
+        "start_char": 818040,
+        "end_char": 818064,
+        "start_line": 19131,
+        "end_line": 19131,
+        "start_page": 407,
+        "end_page": 407
+      },
+      "corrected": {
+        "label": "end_decision",
+        "text": "petitioner.",
+        "group": null,
+        "start_char": 817948,
+        "end_char": 817959,
+        "start_line": 19126,
+        "end_line": 19126,
+        "start_page": 407,
+        "end_page": 407
+      },
+      "context": "against\\npetitioner.\\n\\nYap (Chairman), Melencio-Herrera, Cruz, Gancayco, and\\nSarmiento, JJ., concur.\\n\\nFeliciano, J., on leave.\\n\\nSECOND DIVISION\\n[G.R. No. 50420. May 29, 1987]\\n\\nREMEDIOS FERRER-LOPEZ, assisted by her husband,\\nEN"
+    },
+    {
+      "case_id": "vol234_case_26",
+      "type": "span_adjusted",
+      "label": "case_number",
+      "original": {
+        "label": "case_number",
+        "text": "G.R. No. 1",
+        "group": 0,
+        "start_char": 793069,
+        "end_char": 793079,
+        "start_line": 18569,
+        "end_line": 18569,
+        "start_page": 395,
+        "end_page": 395
+      },
+      "corrected": {
+        "label": "case_number",
+        "text": "G.R. No. 1.-49223",
+        "group": 0,
+        "start_char": 793069,
+        "end_char": 793086,
+        "start_line": 18569,
+        "end_line": 18569,
+        "start_page": 395,
+        "end_page": 395
+      },
+      "context": "ras, Padilla, Bidin,\\nSarmiento, and Cortes, JJ., concur.\\n\\nFeliciano, J., on leave.\\n\\nFIRST DIVISION\\n[G.R. No. 1.-49223. May 29, 1987]\\n\\nPHILIPPINE COMMERCIAL AND INDUSTRIAL\\nBANK, petitioner, vs. HON. RODOLFO ORTI"
+    },
+    {
+      "case_id": "vol234_case_26",
+      "type": "span_adjusted",
+      "label": "date",
+      "original": {
+        "label": "date",
+        "text": "-49223. May 29, 1987",
+        "group": null,
+        "start_char": 793080,
+        "end_char": 793100,
+        "start_line": 18569,
+        "end_line": 18569,
+        "start_page": 395,
+        "end_page": 395
+      },
+      "corrected": {
+        "label": "date",
+        "text": "May 29, 1987",
+        "group": null,
+        "start_char": 793088,
+        "end_char": 793100,
+        "start_line": 18569,
+        "end_line": 18569,
+        "start_page": 395,
+        "end_page": 395
+      },
+      "context": "a, Bidin,\\nSarmiento, and Cortes, JJ., concur.\\n\\nFeliciano, J., on leave.\\n\\nFIRST DIVISION\\n[G.R. No. 1.-49223. May 29, 1987]\\n\\nPHILIPPINE COMMERCIAL AND INDUSTRIAL\\nBANK, petitioner, vs. HON. RODOLFO ORTIZ,\\nROGELIO MARAVILES,"
+    },
+    {
+      "case_id": "vol234_case_26",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Yap (Chairman), Melencio-Herrera, Cruz, Gancayco, and\nSarmiento, JJ., concur.\n\nFeliciano, J., on leave.",
+        "group": null,
+        "start_char": 817961,
+        "end_char": 818064,
+        "start_line": 19128,
+        "end_line": 19131,
+        "start_page": 407,
+        "end_page": 407
+      },
+      "context": "\\nmust go against the latter.\\n\\nWHEREFORE, the petition is dismissed, with costs against\\npetitioner.\\n\\nYap (Chairman), Melencio-Herrera, Cruz, Gancayco, and\\nSarmiento, JJ., concur.\\n\\nFeliciano, J., on leave.\\n\\nSECOND DIVISION\\n[G.R. No. 50420. May 29, 1987]\\n\\nREMEDIOS FERRER-LOPEZ, assisted by her husband,\\nEN"
+    },
+    {
+      "case_id": "vol234_case_29",
+      "type": "span_adjusted",
+      "label": "parties",
+      "original": {
+        "label": "parties",
+        "text": "IN THE MATTER OF THE TESTATE ESTATE OF THE\nDECEASED REV. FATHER TEODORO ARANAS,\nRAMONA B. VDA. DE ARANAS, ADELIA B.\nARANAS-FERNANDEZ, HEIRS OF THE LATE\nRODULFO B. ARANAS, ETC., ET AL., petitioners,",
+        "group": 0,
+        "start_char": 859345,
+        "end_char": 859542,
+        "start_line": 20160,
+        "end_line": 20164,
+        "start_page": 428,
+        "end_page": 428
+      },
+      "corrected": {
+        "label": "parties",
+        "text": "IN THE MATTER OF THE TESTATE ESTATE OF THE\nDECEASED REV. FATHER TEODORO ARANAS,\nRAMONA B. VDA. DE ARANAS, ADELIA B.\nARANAS-FERNANDEZ, HEIRS OF THE LATE\nRODULFO B. ARANAS, ETC., ET AL., petitioners,\nvs. VICENTE B. ARANAS AND HON. LUIS B.\nMANTA, respondents.",
+        "group": 0,
+        "start_char": 859345,
+        "end_char": 859601,
+        "start_line": 20160,
+        "end_line": 20166,
+        "start_page": 428,
+        "end_page": 428
+      },
+      "context": "rera, Cruz,\\nFeliciano, and Sarmiento, JJ., concur.\\n\\nSECOND DIVISION\\n[G.R. No. 56249. May 29, 1987]\\n\\nIN THE MATTER OF THE TESTATE ESTATE OF THE\\nDECEASED REV. FATHER TEODORO ARANAS,\\nRAMONA B. VDA. DE ARANAS, ADELIA B.\\nARANAS-FERNANDEZ, HEIRS OF THE LATE\\nRODULFO B. ARANAS, ETC., ET AL., petitioners,\\nvs. VICENTE B. ARANAS AND HON. LUIS B.\\nMANTA, respondents.\\n\\nSYLLABUS\\n\\nCIVIL LAW; WILLS AND SUCCESSI"
+    },
+    {
+      "case_id": "vol234_case_35",
+      "type": "span_adjusted",
+      "label": "end_opinion",
+      "original": {
+        "label": "end_opinion",
+        "text": "Cabigao vs. The Sandiganbayan",
+        "group": null,
+        "start_char": 995251,
+        "end_char": 995280,
+        "start_line": 23332,
+        "end_line": 23332,
+        "start_page": 495,
+        "end_page": 495
+      },
+      "corrected": {
+        "label": "end_opinion",
+        "text": "I concur with the rest of the decision.",
+        "group": null,
+        "start_char": 995168,
+        "end_char": 995207,
+        "start_line": 23325,
+        "end_line": 23325,
+        "start_page": 494,
+        "end_page": 494
+      },
+      "context": "9 cubic meters.\\n\\nI concur with the rest of the decision.\\n\\n\\n--- Page 495 ---\\n476\\n\\nPHILIPPINE REPORTS\\nCabigao vs. The Sandiganbayan\\nEN BANC\\n\\n[G.R. No. 69422. May 29, 1987]\\n\\nDOMICIANO CABIGAO, NESTOR DOMACENA,\\n\\nROLANDO DOBLADO, ERNE"
+    },
+    {
+      "case_id": "vol234_case_35",
+      "type": "span_adjusted",
+      "label": "votes",
+      "original": {
+        "label": "votes",
+        "text": "Narvasa, Cruz, Feliciano, and Gancayco, JJ., concur.\nYap (Chairman), J., see concurring and dissenting opinion.\n\nSarmiento, J., concurs with the concurring and dissenting\nopinion of Justice Yap.\n\n3° Associated Citizens Bank vs. Ople, 103 SCRA 130 (1981).",
+        "group": null,
+        "start_char": 988579,
+        "end_char": 988833,
+        "start_line": 23184,
+        "end_line": 23190,
+        "start_page": 491,
+        "end_page": 491
+      },
+      "corrected": {
+        "label": "votes",
+        "text": "Narvasa, Cruz, Feliciano, and Gancayco, JJ., concur.\nYap (Chairman), J., see concurring and dissenting opinion.\n\nSarmiento, J., concurs with the concurring and dissenting\nopinion of Justice Yap.",
+        "group": null,
+        "start_char": 988579,
+        "end_char": 988773,
+        "start_line": 23184,
+        "end_line": 23188,
+        "start_page": 491,
+        "end_page": 491
+      },
+      "context": "attorney’s fees,\\nand the costs,\\n\\n2) InG.R. No. 71478, the judgment is hereby affirmed.\\nSO ORDERED.\\n\\nNarvasa, Cruz, Feliciano, and Gancayco, JJ., concur.\\nYap (Chairman), J., see concurring and dissenting opinion.\\n\\nSarmiento, J., concurs with the concurring and dissenting\\nopinion of Justice Yap.\\n\\n3° Associated Citizens Bank vs. Ople, 103 SCRA 130 (1981).\\n24 Tajonera vs. Lamaroza, 110 SCRA 438 (1981).\\n\\n\\n--- Page 492 ---\\nVOL. 234, MAY 29, 1987 473\\n\\nEaste"
+    },
+    {
+      "case_id": "vol234_case_35",
+      "type": "span_adjusted",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_of_case",
+        "text": "Cabigao vs. The Sandiganbayan",
+        "group": null,
+        "start_char": 995251,
+        "end_char": 995280,
+        "start_line": 23332,
+        "end_line": 23332,
+        "start_page": 495,
+        "end_page": 495
+      },
+      "corrected": {
+        "label": "end_of_case",
+        "text": "I concur with the rest of the decision.",
+        "group": null,
+        "start_char": 995168,
+        "end_char": 995207,
+        "start_line": 23325,
+        "end_line": 23325,
+        "start_page": 494,
+        "end_page": 494
+      },
+      "context": "9 cubic meters.\\n\\nI concur with the rest of the decision.\\n\\n\\n--- Page 495 ---\\n476\\n\\nPHILIPPINE REPORTS\\nCabigao vs. The Sandiganbayan\\nEN BANC\\n\\n[G.R. No. 69422. May 29, 1987]\\n\\nDOMICIANO CABIGAO, NESTOR DOMACENA,\\n\\nROLANDO DOBLADO, ERNE"
+    },
+    {
+      "case_id": "vol234_case_36",
+      "type": "added",
+      "label": "parties",
+      "original": null,
+      "corrected": {
+        "label": "parties",
+        "text": "DOMICIANO CABIGAO, NESTOR DOMACENA,\n\nROLANDO DOBLADO, ERNESTO PAMPUAN,\nEDGARDO PRADO, ROMEO DOMINICO,\nRODOLFO ERESE, RAMON GARCIA, and\nCARLOS PACHECO, appellants-petitioners, vs. THE\nSANDIGANBAYAN, respondents.",
+        "group": 0,
+        "start_char": 995322,
+        "end_char": 995532,
+        "start_line": 23337,
+        "end_line": 23343,
+        "start_page": 495,
+        "end_page": 495
+      },
+      "context": " ---\\n476\\n\\nPHILIPPINE REPORTS\\nCabigao vs. The Sandiganbayan\\nEN BANC\\n\\n[G.R. No. 69422. May 29, 1987]\\n\\nDOMICIANO CABIGAO, NESTOR DOMACENA,\\n\\nROLANDO DOBLADO, ERNESTO PAMPUAN,\\nEDGARDO PRADO, ROMEO DOMINICO,\\nRODOLFO ERESE, RAMON GARCIA, and\\nCARLOS PACHECO, appellants-petitioners, vs. THE\\nSANDIGANBAYAN, respondents.\\n\\n[G.R. No. 69960. May 29, 1987]\\n\\nDOMICIANO CABIGAO, NESTOR DOMACENA,\\n\\n1.\\n\\nROLANDO DOBLADO, ERNESTO "
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "label_changed",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_syllabus",
+        "text": "Cortes, JJ., concur,",
+        "group": null,
+        "start_char": 1068385,
+        "end_char": 1068405,
+        "start_line": 25081,
+        "end_line": 25081,
+        "start_page": 531,
+        "end_page": 531
+      },
+      "corrected": {
+        "label": "end_of_case",
+        "text": "Cortes, JJ., concur,",
+        "group": null,
+        "start_char": 1068385,
+        "end_char": 1068405,
+        "start_line": 25081,
+        "end_line": 25081,
+        "start_page": 531,
+        "end_page": 531
+      },
+      "context": "-10,000.00 as attorney’s fees.\\n\\nSO ORDERED.\\n\\nFernan (Chairman), Gutierrez, Jr., Padilla, Bidin, and\\nCortes, JJ., concur,\\n\\nFIRST DIVISION\\n[G.R. No. 72005. May 29, 1987]\\n\\nPHILIPPINE BRITISH ASSURANCE CoO., INC.,\\npetitioner"
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "removed",
+      "label": "ponente",
+      "original": {
+        "label": "ponente",
+        "text": "PARAS",
+        "group": null,
+        "start_char": 1050914,
+        "end_char": 1050919,
+        "start_line": 24661,
+        "end_line": 24661,
+        "start_page": 718,
+        "end_page": 718
+      },
+      "corrected": null,
+      "context": "ctive conditions of roads, streets,\\nbridges, public buildings and other public works under their\\ncontrol or supervision.” x x x constitutes a particular prescription\\nmaking “provinces, cities and municipal"
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "removed",
+      "label": "doc_type",
+      "original": {
+        "label": "doc_type",
+        "text": "DECYSION",
+        "group": null,
+        "start_char": 1050906,
+        "end_char": 1050914,
+        "start_line": 24660,
+        "end_line": 24661,
+        "start_page": 718,
+        "end_page": 718
+      },
+      "corrected": null,
+      "context": " of defective conditions of roads, streets,\\nbridges, public buildings and other public works under their\\ncontrol or supervision.” x x x constitutes a particular prescription\\nmaking “provinces, cities and muni"
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "added",
+      "label": "end_syllabus",
+      "original": null,
+      "corrected": {
+        "label": "end_syllabus",
+        "text": "over the public building in question.",
+        "group": null,
+        "start_char": 1052098,
+        "end_char": 1052135,
+        "start_line": 24687,
+        "end_line": 24687,
+        "start_page": 523,
+        "end_page": 523
+      },
+      "context": "aid article requires is that the\\nprovince, city or municipality has either “control or supervision”\\nover the public building in question.\\n\\nDECYSION\\nPARAS, J.:\\n\\nThis is a petition for review on certiorari of : (1) the decision*\\nof the Int"
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "added",
+      "label": "doc_type",
+      "original": null,
+      "corrected": {
+        "label": "doc_type",
+        "text": "DECYSION",
+        "group": null,
+        "start_char": 1052137,
+        "end_char": 1052145,
+        "start_line": 24689,
+        "end_line": 24689,
+        "start_page": 523,
+        "end_page": 523
+      },
+      "context": "ce, city or municipality has either “control or supervision”\\nover the public building in question.\\n\\nDECYSION\\nPARAS, J.:\\n\\nThis is a petition for review on certiorari of : (1) the decision*\\nof the Intermediate "
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "added",
+      "label": "ponente",
+      "original": null,
+      "corrected": {
+        "label": "ponente",
+        "text": "PARAS",
+        "group": null,
+        "start_char": 1052146,
+        "end_char": 1052151,
+        "start_line": 24690,
+        "end_line": 24690,
+        "start_page": 523,
+        "end_page": 523
+      },
+      "context": "or municipality has either “control or supervision”\\nover the public building in question.\\n\\nDECYSION\\nPARAS, J.:\\n\\nThis is a petition for review on certiorari of : (1) the decision*\\nof the Intermediate Appell"
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "added",
+      "label": "start_decision",
+      "original": null,
+      "corrected": {
+        "label": "start_decision",
+        "text": "This is a petition for review on certiorari of : (1) the decision*",
+        "group": null,
+        "start_char": 1052158,
+        "end_char": 1052224,
+        "start_line": 24692,
+        "end_line": 24692,
+        "start_page": 523,
+        "end_page": 523
+      },
+      "context": "ity has either “control or supervision”\\nover the public building in question.\\n\\nDECYSION\\nPARAS, J.:\\n\\nThis is a petition for review on certiorari of : (1) the decision*\\nof the Intermediate Appellate Court in AC-G.R. No. 013887-\\nCV Bernardino Jimenez v. Asiatic Integra"
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "added",
+      "label": "end_decision",
+      "original": null,
+      "corrected": {
+        "label": "end_decision",
+        "text": "SO ORDERED.",
+        "group": null,
+        "start_char": 1068317,
+        "end_char": 1068328,
+        "start_line": 25078,
+        "end_line": 25078,
+        "start_page": 531,
+        "end_page": 531
+      },
+      "context": " as moral damages due to pain, sufferings and\\nsleepless nights and P-10,000.00 as attorney’s fees.\\n\\nSO ORDERED.\\n\\nFernan (Chairman), Gutierrez, Jr., Padilla, Bidin, and\\nCortes, JJ., concur,\\n\\nFIRST DIVISION\\n[G.R. "
+    },
+    {
+      "case_id": "vol234_case_39",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Fernan (Chairman), Gutierrez, Jr., Padilla, Bidin, and\nCortes, JJ., concur,",
+        "group": null,
+        "start_char": 1068330,
+        "end_char": 1068405,
+        "start_line": 25080,
+        "end_line": 25081,
+        "start_page": 531,
+        "end_page": 531
+      },
+      "context": "ages due to pain, sufferings and\\nsleepless nights and P-10,000.00 as attorney’s fees.\\n\\nSO ORDERED.\\n\\nFernan (Chairman), Gutierrez, Jr., Padilla, Bidin, and\\nCortes, JJ., concur,\\n\\nFIRST DIVISION\\n[G.R. No. 72005. May 29, 1987]\\n\\nPHILIPPINE BRITISH ASSURANCE CoO., INC.,\\npetitioner"
+    },
+    {
+      "case_id": "vol234_case_41",
+      "type": "removed",
+      "label": "end_decision",
+      "original": {
+        "label": "end_decision",
+        "text": "Feliciano, J., on leave.",
+        "group": null,
+        "start_char": 1122900,
+        "end_char": 1122924,
+        "start_line": 26269,
+        "end_line": 26269,
+        "start_page": 556,
+        "end_page": 556
+      },
+      "corrected": null,
+      "context": "encio-\\nHerrera, Gutierrez, Jr., Cruz, Paras, Gancayco, Padilla,\\nBidin, and Sarmiento, JJ., concur,\\n\\nFeliciano, J., on leave,\\n\\nEN BANC\\n\\n[G.R. No. 72370. May 29, 1987]\\n\\nBF NORTHWEST HOMEOWNERS ASSOCIATION,\\n\\nINC., petitioner, v"
+    },
+    {
+      "case_id": "vol234_case_41",
+      "type": "added",
+      "label": "end_decision",
+      "original": null,
+      "corrected": {
+        "label": "end_decision",
+        "text": "L. Legaspi.",
+        "group": null,
+        "start_char": 1122648,
+        "end_char": 1122659,
+        "start_line": 26257,
+        "end_line": 26257,
+        "start_page": 555,
+        "end_page": 555
+      },
+      "context": "as for said position in the Health\\nDepartment of Cebu City, as requested by the petitioner Valentin\\nL. Legaspi.\\n\\n\\n--- Page 556 ---\\nVOL. 234, MAY 29, 1987 537\\n\\nBF Northwest Homeowners Association, Inc. vs, IAC\\n\\nT"
+    },
+    {
+      "case_id": "vol234_case_41",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Yap, Fernan, Narvasa, Melencio-\nHerrera, Gutierrez, Jr., Cruz, Paras, Gancayco, Padilla,\nBidin, and Sarmiento, JJ., concur,\n\nFeliciano, J., on leave,",
+        "group": null,
+        "start_char": 1122758,
+        "end_char": 1122924,
+        "start_line": 26265,
+        "end_line": 26269,
+        "start_page": 556,
+        "end_page": 556
+      },
+      "context": ".\\n\\n\\n--- Page 556 ---\\nVOL. 234, MAY 29, 1987 537\\n\\nBF Northwest Homeowners Association, Inc. vs, IAC\\n\\nTeehankee, C.J., Yap, Fernan, Narvasa, Melencio-\\nHerrera, Gutierrez, Jr., Cruz, Paras, Gancayco, Padilla,\\nBidin, and Sarmiento, JJ., concur,\\n\\nFeliciano, J., on leave,\\n\\nEN BANC\\n\\n[G.R. No. 72370. May 29, 1987]\\n\\nBF NORTHWEST HOMEOWNERS ASSOCIATION,\\n\\nINC., petitioner, v"
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "label_changed",
+      "label": "end_of_case",
+      "original": {
+        "label": "end_syllabus",
+        "text": "27, 1961, | SCRA 860.",
+        "group": null,
+        "start_char": 1145395,
+        "end_char": 1145416,
+        "start_line": 26788,
+        "end_line": 26788,
+        "start_page": 566,
+        "end_page": 566
+      },
+      "corrected": {
+        "label": "end_of_case",
+        "text": "27, 1961, | SCRA 860.",
+        "group": null,
+        "start_char": 1145395,
+        "end_char": 1145416,
+        "start_line": 26788,
+        "end_line": 26788,
+        "start_page": 566,
+        "end_page": 566
+      },
+      "context": "do, Jr., vs. Coloma, L-60544,\\nMay 19, 1984, 129 SCRA 304; Encarnacion vs. Baltazar, 1.-16883, March\\n27, 1961, | SCRA 860.\\n\\n\\n--- Page 567 ---\\n548 PHILIPPINE REPORTS\\n\\nPacmac, Inc. vs. Intermediate Appellate Court\\nSECOND DIV"
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "removed",
+      "label": "doc_type",
+      "original": {
+        "label": "doc_type",
+        "text": "DECISTON",
+        "group": null,
+        "start_char": 1124685,
+        "end_char": 1124693,
+        "start_line": 26320,
+        "end_line": 26320,
+        "start_page": 718,
+        "end_page": 718
+      },
+      "corrected": null,
+      "context": ", and questions of fact\\nand law. This conclusion is also in keeping with the Judiciary\\nReorganization Act of 1980, which vests Regional Trial Courts\\nwith original jurisdiction to issue writs of certiorart, pr"
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "removed",
+      "label": "ponente",
+      "original": {
+        "label": "ponente",
+        "text": "MELENCIO-HERRERA",
+        "group": null,
+        "start_char": 1124695,
+        "end_char": 1124711,
+        "start_line": 26320,
+        "end_line": 26320,
+        "start_page": 718,
+        "end_page": 718
+      },
+      "corrected": null,
+      "context": "tions of fact\\nand law. This conclusion is also in keeping with the Judiciary\\nReorganization Act of 1980, which vests Regional Trial Courts\\nwith original jurisdiction to issue writs of certiorart, prohibition,\\nmandamu"
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "added",
+      "label": "end_syllabus",
+      "original": null,
+      "corrected": {
+        "label": "end_syllabus",
+        "text": "administration of justice.",
+        "group": null,
+        "start_char": 1126828,
+        "end_char": 1126854,
+        "start_line": 26366,
+        "end_line": 26366,
+        "start_page": 558,
+        "end_page": 558
+      },
+      "context": "isdiction” which is not favored, and in\\nmultiplicity of suits, a situation obnoxious to the orderly\\nadministration of justice.\\n\\nDECISTON\\nMELENCIO-HERRERA, J.:\\n\\nThe core issue for resolution is: which Court has jurisdiction\\nove"
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "added",
+      "label": "start_decision",
+      "original": null,
+      "corrected": {
+        "label": "start_decision",
+        "text": "The core issue for resolution is: which Court has jurisdiction",
+        "group": null,
+        "start_char": 1126888,
+        "end_char": 1126950,
+        "start_line": 26371,
+        "end_line": 26371,
+        "start_page": 558,
+        "end_page": 558
+      },
+      "context": "s, a situation obnoxious to the orderly\\nadministration of justice.\\n\\nDECISTON\\nMELENCIO-HERRERA, J.:\\n\\nThe core issue for resolution is: which Court has jurisdiction\\nover actions to annul Orders, Resolutions and/or Decisions of\\nthe National Water Resources Council "
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "added",
+      "label": "doc_type",
+      "original": null,
+      "corrected": {
+        "label": "doc_type",
+        "text": "DECISTON",
+        "group": null,
+        "start_char": 1126856,
+        "end_char": 1126864,
+        "start_line": 26368,
+        "end_line": 26368,
+        "start_page": 558,
+        "end_page": 558
+      },
+      "context": "red, and in\\nmultiplicity of suits, a situation obnoxious to the orderly\\nadministration of justice.\\n\\nDECISTON\\nMELENCIO-HERRERA, J.:\\n\\nThe core issue for resolution is: which Court has jurisdiction\\nover actions "
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "added",
+      "label": "votes",
+      "original": null,
+      "corrected": {
+        "label": "votes",
+        "text": "Teehankee, C.J., Yap, Fernan, Narvasa, Gutierrez, Jr.,\nCruz, Paras, Feliciano, Gancayco, Padilla, Bidin, Sarmiento,\nand Cortes, J/., concur.",
+        "group": null,
+        "start_char": 1145042,
+        "end_char": 1145182,
+        "start_line": 26781,
+        "end_line": 26783,
+        "start_page": 566,
+        "end_page": 566
+      },
+      "context": "es Council shall be deemed impleaded\\nas a party defendant in the said case. No costs.\\n\\nSO ORDERED.\\n\\nTeehankee, C.J., Yap, Fernan, Narvasa, Gutierrez, Jr.,\\nCruz, Paras, Feliciano, Gancayco, Padilla, Bidin, Sarmiento,\\nand Cortes, J/., concur.\\n\\n10 See Calimlim, et al. vs. Han. Pedro A. Ramirez, et al., No. L-34362,\\nNovember 19, 1982, 118 SCR"
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "added",
+      "label": "end_decision",
+      "original": null,
+      "corrected": {
+        "label": "end_decision",
+        "text": "SO ORDERED.",
+        "group": null,
+        "start_char": 1145029,
+        "end_char": 1145040,
+        "start_line": 26779,
+        "end_line": 26779,
+        "start_page": 566,
+        "end_page": 566
+      },
+      "context": "Water Resources Council shall be deemed impleaded\\nas a party defendant in the said case. No costs.\\n\\nSO ORDERED.\\n\\nTeehankee, C.J., Yap, Fernan, Narvasa, Gutierrez, Jr.,\\nCruz, Paras, Feliciano, Gancayco, Padilla, "
+    },
+    {
+      "case_id": "vol234_case_42",
+      "type": "added",
+      "label": "ponente",
+      "original": null,
+      "corrected": {
+        "label": "ponente",
+        "text": "MELENCIO-HERRERA",
+        "group": null,
+        "start_char": 1126865,
+        "end_char": 1126881,
+        "start_line": 26369,
+        "end_line": 26369,
+        "start_page": 558,
+        "end_page": 558
+      },
+      "context": "in\\nmultiplicity of suits, a situation obnoxious to the orderly\\nadministration of justice.\\n\\nDECISTON\\nMELENCIO-HERRERA, J.:\\n\\nThe core issue for resolution is: which Court has jurisdiction\\nover actions to annul Orders, "
+    },
+    {
+      "case_id": "vol234_case_48",
+      "type": "span_adjusted",
+      "label": "counsel",
+      "original": {
+        "label": "counsel",
+        "text": "APPEARANCES OF COUNSEL\n\nC.M. Delos Reyes and Associates for petitioner.",
+        "group": null,
+        "start_char": 1220805,
+        "end_char": 1220876,
+        "start_line": 28499,
+        "end_line": 28501,
+        "start_page": 602,
+        "end_page": 602
+      },
+      "corrected": {
+        "label": "counsel",
+        "text": "APPEARANCES OF COUNSEL\n\nC.M. Delos Reyes and Associates for petitioner.\nMagtanggol C. Gunigundo and Fajardo Law Office for\nrespondents,",
+        "group": null,
+        "start_char": 1220805,
+        "end_char": 1220940,
+        "start_line": 28499,
+        "end_line": 28503,
+        "start_page": 602,
+        "end_page": 602
+      },
+      "context": "ight of redemption continues after perfection of an\\nappeal x x x until the decision of the appeal.\\n\\nAPPEARANCES OF COUNSEL\\n\\nC.M. Delos Reyes and Associates for petitioner.\\nMagtanggol C. Gunigundo and Fajardo Law Office for\\nrespondents,\\n\\nDECISION\\nGUTIERREZ, JR., Ji:\\n\\nThe "
+    },
+    {
+      "case_id": "vol234_case_56",
+      "type": "span_adjusted",
+      "label": "votes",
+      "original": {
+        "label": "votes",
+        "text": "Teehankee C.J., Yap, Fernan, Narvasa, Melencio-Herrera,\nGutierrez, Jr., Cruz, Paras, Feliciano, Gancayco, Bidin,\nSarmiento, and Cortes, JJ., concur.\n\n® Const. (1973), Art. IV, Sec. 20, “No person shall be compelled to be\na witness against himself. Any person under investigation for the commission\nof an offense shall have the right to remain silent and to counsel, and to be\ninformed of such right. No force, violence, threat, intimidation or any other\nmeans which vitiates the free will shall be used against him. Any confession\nobtained in violation of this section shall be inadmissible in evidence.” Cf.\nArt. III, Sec. 12 of the 1987 Constitution.",
+        "group": null,
+        "start_char": 1363893,
+        "end_char": 1364545,
+        "start_line": 31857,
+        "end_line": 31867,
+        "start_page": 672,
+        "end_page": 672
+      },
+      "corrected": {
+        "label": "votes",
+        "text": "Teehankee C.J., Yap, Fernan, Narvasa, Melencio-Herrera,\nGutierrez, Jr., Cruz, Paras, Feliciano, Gancayco, Bidin,\nSarmiento, and Cortes, JJ., concur.",
+        "group": null,
+        "start_char": 1363893,
+        "end_char": 1364041,
+        "start_line": 31857,
+        "end_line": 31859,
+        "start_page": 672,
+        "end_page": 672
+      },
+      "context": "ease from confinement, unless he is legally\\ndetained for some other cause or offense.\\n\\nSO ORDERED.\\n\\nTeehankee C.J., Yap, Fernan, Narvasa, Melencio-Herrera,\\nGutierrez, Jr., Cruz, Paras, Feliciano, Gancayco, Bidin,\\nSarmiento, and Cortes, JJ., concur.\\n\\n® Const. (1973), Art. IV, Sec. 20, “No person shall be compelled to be\\na witness against himself. Any person under investigation for the commission\\nof an offense shall have the right to remain silent and to counsel, and to be\\ninformed of such right. No force, violence, threat, intimidation or any other\\nmeans which vitiates the free will shall be used against him. Any confession\\nobtained in violation of this section shall be inadmissible in evidence.” Cf.\\nArt. III, Sec. 12 of the 1987 Constitution.\\n\\n\\n--- Page 673 ---\\n\\n\\n--- Page 674 ---\\n\\n\\n--- Page 675 ---\\n\\n\\n--- Page 676 ---\\n657\\n\\nINDEX\\n\\nACTIONS\\n\\nLa"
+    }
+  ],
+  "analysis_prompt": "The following is a correction log from human review of automated extraction results for Philippine Supreme Court case Volume_234.txt. The detection pipeline used regex-based extraction with OCR correction. A human reviewer corrected 81 annotations across 22 cases (out of 57 total). Analyze these corrections to identify: (1) systematic patterns in what the pipeline gets wrong, (2) specific regex patterns or FSM transitions that need updating, (3) labels that would benefit most from improved extraction logic. Focus on actionable suggestions referencing the pipeline source files in regex_improve/detection/."
+}

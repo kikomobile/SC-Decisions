@@ -1502,6 +1502,551 @@ Can be done in parallel. Both should be applied before re-running batch.
 
 ---
 
+## Detection Manifest and Caching (MANIFEST-1 thru MANIFEST-4)
+
+Add a detection manifest and per-label method tracking so the pipeline can skip fully up-to-date volumes, re-run regex (fast/free) while preserving cached LLM results (expensive), and diff/merge between runs.
+
+**Validation:** After implementation, run:
+```
+cd regex_improve
+python -m detection.manifest                          # self-test (12 checks)
+python -m pytest detection/tests/test_pipeline.py::TestManifest -v  # 6 unit tests
+python -m detection ../downloads/Volume_226.txt -o /tmp/vol226.json --skip-llm
+# Re-run same command — should log "up to date, skipping"
+# Run with --force — should fully reprocess
+```
+
+---
+
+### MANIFEST-1: Add `detection_method` Field to Annotations
+
+**Status:** DONE
+**Depends on:** None
+**Files modified:**
+- `regex_improve/detection/pipeline.py` (line ~213: added `"detection_method": "regex"` to ann_dict)
+- `regex_improve/detection/llm_fallback.py` (line ~324: added `"detection_method": "llm"` to annotation dict)
+
+**Description:**
+Tags every annotation dict with `"detection_method": "regex"` or `"llm"` at creation time. Backward-compatible (optional key). The `ocr_correction.py` uses `ann.copy()`, so the new key propagates through OCR correction automatically.
+
+---
+
+### MANIFEST-2: Create `manifest.py` Module
+
+**Status:** DONE
+**Depends on:** None
+**Files created:**
+- `regex_improve/detection/manifest.py`
+
+**Description:**
+New module with functions for manifest I/O, volume entry management, reprocessing decisions, and annotation merging.
+
+**Functions:**
+- `load_manifest(output_dir)` / `save_manifest(output_dir, manifest)` — atomic JSON I/O
+- `get_volume_entry` / `update_volume_entry` — CRUD for volume entries
+- `should_reprocess(manifest, volume_name, source_path, force)` — returns `(bool, reason_str)`
+- `load_previous_predictions(output_dir, prediction_file)` — load previous output JSON
+- `merge_annotations(previous_anns, current_anns, force_llm_rerun)` — merge strategy:
+  - Previous regex -> replaced by current regex
+  - Previous LLM -> kept (unless force_llm_rerun=True)
+  - New in current -> added
+  - Missing from current but in previous -> kept (preserve coverage)
+- 12 self-tests in `__main__` block, all passing
+
+---
+
+### MANIFEST-3: Integrate Manifest into Pipeline and CLI
+
+**Status:** DONE
+**Depends on:** MANIFEST-1, MANIFEST-2
+**Files modified:**
+- `regex_improve/detection/pipeline.py`
+  - Added `force: bool = False` param to `process_volume` and `process_batch`
+  - Before Step 1: manifest check, return cached result if up to date
+  - After Step 4 (OCR correction): merge with previous predictions (preserve cached LLM)
+  - In Step 6 (LLM fallback): filter out labels with cached `detection_method == "llm"`
+  - After writing output: `update_volume_entry` + `save_manifest`
+  - `pipeline_version` now uses `PIPELINE_VERSION` constant ("1.1") from manifest module
+- `regex_improve/detection/__main__.py`
+  - Added `--force` CLI flag
+  - Passed `force=args.force` to both `process_volume` and `process_batch`
+
+**Flag interaction matrix:**
+
+| `--force` | `--skip-llm` | Behavior |
+|-----------|-------------|----------|
+| no | no | Re-run regex, keep cached LLM, run LLM for new low-confidence |
+| no | yes | Re-run regex, keep cached LLM, no new LLM calls |
+| yes | no | Full pipeline from scratch, run LLM for low-confidence |
+| yes | yes | Full pipeline from scratch, no LLM |
+
+---
+
+### MANIFEST-4: Update Tests and Docs
+
+**Status:** DONE
+**Depends on:** MANIFEST-1, MANIFEST-2, MANIFEST-3
+**Files modified:**
+- `regex_improve/detection/tests/test_pipeline.py`
+  - Added `test_detection_method_present` to `TestPipelineIntegration`
+  - Added `TestManifest` class with 6 tests: roundtrip save/load, merge preserves LLM, merge replaces on force, new volume needs reprocessing, up-to-date skips, force always reprocesses
+- `regex_improve/detection/Instructions.txt`
+  - Section 2: added `--force` example
+  - Section 7: added `detection_method` field to output schema
+  - New Section 12: Detection Manifest and Caching (manifest location, --force flag, merge behavior, mtime auto-invalidation, flag interaction matrix)
+
+---
+
+### MANIFEST Dependency Graph
+
+```
+MANIFEST-1 (detection_method field)  -- independent
+MANIFEST-2 (manifest.py module)      -- independent
+MANIFEST-3 (pipeline + CLI integration) -- depends on MANIFEST-1, MANIFEST-2
+MANIFEST-4 (tests + docs)              -- depends on MANIFEST-1, MANIFEST-2, MANIFEST-3
+
+All four tasks are DONE.
+```
+
+---
+
+## Volume 234 Extraction Fixes (FIX-234-1 thru FIX-234-4)
+
+Human review of Volume 234 (57 cases) found 81 corrections across 22 cases. Analysis identified 4 root causes affecting votes, end_decision, separate opinions, and parties. These fixes use justice-surname matching from `justices.json` for loose boundary detection instead of fragile regex-only heuristics.
+
+**Correction file:** `regex_improve/corrections/Volume_234_corrections.json`
+
+**Validation:** After each fix, run:
+```
+cd regex_improve
+python -m detection ../downloads/Volume_234.txt --skip-llm --force -o /tmp/vol234_fixed.json
+python -m detection ../downloads/Volume_226.txt --score annotation_exports/ground_truth_20260309_144413.json --skip-llm --force
+python -m pytest detection/tests/test_pipeline.py -v
+```
+Then import the Vol 234 predicted.json into the GUI and compare against the corrections file.
+
+---
+
+### FIX-234-1: WHEREFORE Fallback for end_decision Detection
+
+**Status:** DONE
+**Estimated impact:** ~10 end_decision corrections + ~8 votes corrections (cascading — correct end_decision enables correct votes detection)
+**Depends on:** None
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+When "SO ORDERED." is absent, the pipeline falls back to "last content line" which overshoots into votes or footnotes. Many decisions end with a WHEREFORE dispositif paragraph followed directly by justice names (votes). The fix finds the *last* WHEREFORE that is confirmed by nearby justice surnames within ~20 lines.
+
+**Root cause in code:**
+```python
+# section_extractor.py:558-571 — fallback when no SO ORDERED found
+if not end_decision_line:
+    # ... uses last non-blank line, which is often a footnote or justice name
+    last_content_line = None
+    last_content_text = None
+    for line_num, text in decision_lines:
+        if text.strip():
+            last_content_line = line_num
+            last_content_text = text
+```
+
+**Fix:**
+
+1. At the top of the file (after line 13, the `from detection.boundary_fsm import ...` line), add:
+   ```python
+   from detection.justice_registry import load_justices
+   ```
+   At module level (around line 63, after `RE_FOOTNOTE_START`), add:
+   ```python
+   RE_WHEREFORE = re.compile(r'^\s*WHEREFORE\b', re.IGNORECASE)
+   ```
+   Also add a cached loader and helper function:
+   ```python
+   _KNOWN_JUSTICES = None
+   def _get_known_justices():
+       global _KNOWN_JUSTICES
+       if _KNOWN_JUSTICES is None:
+           _KNOWN_JUSTICES = load_justices()
+       return _KNOWN_JUSTICES
+
+   def _line_has_justice_surname(text, justices):
+       """Check if a line contains any known justice surname (loose match)."""
+       text_upper = text.upper()
+       for surname in justices:
+           if surname.upper() in text_upper:
+               return True
+       return False
+   ```
+
+2. Replace the fallback block at lines 558-571 (the `if not end_decision_line:` block) with:
+   ```python
+   if not end_decision_line:
+       # WHEREFORE fallback: find the LAST "WHEREFORE" paragraph that is
+       # followed within ~20 lines by justice surnames (votes block).
+       justices = _get_known_justices()
+       wherefore_candidates = []
+       for i, (line_num, text) in enumerate(decision_lines):
+           if RE_WHEREFORE.match(text):
+               wherefore_candidates.append((i, line_num, text))
+
+       # Check candidates in reverse (last first)
+       for cand_idx, cand_line, cand_text in reversed(wherefore_candidates):
+           found_justice = False
+           for look_idx in range(cand_idx + 1, min(cand_idx + 21, len(decision_lines))):
+               look_text = decision_lines[look_idx][1]
+               if _line_has_justice_surname(look_text, justices):
+                   found_justice = True
+                   break
+           if found_justice:
+               # Found the dispositif WHEREFORE. Scan forward to find last
+               # non-blank line before the first justice-surname line.
+               para_end_line = cand_line
+               para_end_text = cand_text
+               for scan_idx in range(cand_idx + 1, min(cand_idx + 21, len(decision_lines))):
+                   scan_line_num, scan_text = decision_lines[scan_idx]
+                   if _line_has_justice_surname(scan_text, justices):
+                       break
+                   if scan_text.strip():
+                       para_end_line = scan_line_num
+                       para_end_text = scan_text
+               end_decision_line = para_end_line
+               end_decision_text = para_end_text
+               break
+
+       # Ultimate fallback: last non-blank content line
+       if not end_decision_line:
+           for line_num, text in decision_lines:
+               if text.strip():
+                   end_decision_line = line_num
+                   end_decision_text = text
+   ```
+
+**Constraints:**
+- Do NOT change the existing `RE_SO_ORDERED` scan (lines 539-556). The WHEREFORE logic is purely a fallback when that scan produces nothing.
+- `_line_has_justice_surname` uses loose substring matching (not word-boundary). This is fine because justice surnames like "CRUZ", "YAP" are short but distinct in uppercase court documents.
+- Do NOT add `rapidfuzz` for this — plain substring matching on uppercase is sufficient.
+- Do NOT use Unicode characters in print statements.
+- Test: case_13 (BASECO), case_17, case_24, case_26, case_41 should now have correct end_decision.
+
+---
+
+### FIX-234-2: Justice-Surname Loose Matching for Votes Termination
+
+**Status:** DONE
+**Estimated impact:** ~5 votes span corrections (cases 1, 11, 12, 35, 56 — votes absorbing footnotes)
+**Depends on:** FIX-234-1 (needs `_get_known_justices` and `_line_has_justice_surname`)
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+Votes extraction absorbs footnotes because `RE_FOOTNOTE_START` misses many OCR variants (e.g. `3! U8. vs. Billedo...`, `° Const. (1973)...`). Instead of expanding the footnote regex endlessly, use justice-surname matching as a loose stop condition: after entering the votes section, lines without any justice surname *and* without any votes keyword are likely footnotes.
+
+**Root cause in code:**
+```python
+# section_extractor.py:636-641 — footnote check only works for known patterns
+if RE_FOOTNOTE_START.match(text):
+    if in_votes_section:
+        break
+    continue
+```
+
+**Fix:**
+
+Replace the `else:` branch starting at line 624 (where `text.strip()` is truthy, inside the votes extraction loop) — specifically lines 625-663 — with:
+
+```python
+                           consecutive_blank_lines = 0
+
+                           # 4. Maximum 15 non-blank lines
+                           non_blank_votes_count += 1
+                           if non_blank_votes_count > max_non_blank_lines:
+                               break
+
+                           # Check if this line contains a justice surname (loose)
+                           justices = _get_known_justices()
+                           has_justice = _line_has_justice_surname(text, justices)
+
+                           # Check if this line looks like a votes line (existing regex)
+                           is_votes_line = RE_VOTES_CONTENT.search(text) is not None
+
+                           # Skip footnote lines
+                           if RE_FOOTNOTE_START.match(text):
+                               if in_votes_section:
+                                   # In votes + footnote pattern + no justice surname = stop
+                                   if not has_justice:
+                                       break
+                                   # Has justice surname despite footnote-like start — keep
+                               else:
+                                   continue
+
+                           # Determine if line belongs in votes
+                           if is_votes_line or has_justice:
+                               in_votes_section = True
+                               votes_lines.append((line_num, text))
+                               votes_end_idx = i + 1
+                           elif in_votes_section:
+                               # In votes but no justice surname and no votes keyword
+                               if len(text.strip()) < 50:
+                                   # Short line — include cautiously
+                                   votes_lines.append((line_num, text))
+                                   votes_end_idx = i + 1
+                               else:
+                                   # Long line without justice reference = not votes
+                                   break
+                           else:
+                               # Not yet in votes section, skip leading non-votes lines
+                               pass
+```
+
+**Constraints:**
+- Keep the existing stop conditions above this block unchanged (RE_SEPARATE_OPINION, RE_DIVISION, RE_CASE_BRACKET, consecutive blanks).
+- `_get_known_justices()` is cached at module level (from FIX-234-1), so calling it in the loop is cheap.
+- This is a "loose" approach: justice surname matching *extends* votes (lines with a surname are kept) and *terminates* votes (footnote-like lines without a surname are stopped).
+- Do NOT use Unicode characters in print statements.
+- Test: cases 1, 11, 12, 35, 56 should have votes that stop before footnotes.
+
+---
+
+### FIX-234-3: Detect All Separate Opinions (Not Just the First)
+
+**Status:** DONE
+**Estimated impact:** ~15 start_opinion + end_opinion corrections (case 13 alone has 5 missing opinion pairs)
+**Depends on:** FIX-234-1, FIX-234-2 (votes extraction must complete correctly first)
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+The current code only finds the *first* `RE_SEPARATE_OPINION` match and creates one start_opinion/end_opinion pair. Volume 234 case 13 (BASECO) has 5 separate opinions (Teehankee concurring, Padilla concurring, Melencio-Herrera concurring with qualifications, Gutierrez dissenting, Cruz dissenting) that were all missed. The fix implements a loop that finds ALL separate opinions and creates paired start_opinion/end_opinion annotations for each.
+
+**Root cause in code:**
+```python
+# section_extractor.py:704-765 — only finds first opinion, then falls through
+if opinion_check_idx is not None and opinion_check_idx < len(lines):
+    sep_line_num, sep_text = lines[opinion_check_idx]
+    if RE_SEPARATE_OPINION.match(sep_text):
+        # Creates ONE start_opinion/end_opinion pair, misses all subsequent
+```
+
+**Fix:**
+
+Replace the entire separate opinions detection block (lines 689-788, from the `# Check for separate opinions` comment through all the end_of_case logic) with a new block that:
+
+a. Scans from `votes_end_idx` (or `separate_opinion_idx`) to end of `lines` for ALL lines matching `RE_SEPARATE_OPINION` or a new `RE_SEP_OPINION_HEADER = re.compile(r'^SEPARATE\s+OPINION\s*$', re.IGNORECASE)` (defined locally in the block).
+
+b. Deduplicates: when a "SEPARATE OPINION" header at line N is followed within 3 lines by a justice attribution line also matched, keep only the header.
+
+c. For each opinion: `start_opinion` = header or attribution line; `end_opinion` = last non-blank line before the next `start_opinion` (or end of case for the last opinion). Stop scanning if `RE_DIVISION` or `RE_CASE_BRACKET` is hit.
+
+d. `end_of_case` = `end_opinion` of the last separate opinion. If no opinions, use existing logic (last votes line or end_decision).
+
+```python
+                       # Check for separate opinions — find ALL, not just the first
+                       RE_SEP_OPINION_HEADER = re.compile(r'^SEPARATE\s+OPINION\s*$', re.IGNORECASE)
+
+                       opinion_scan_start = separate_opinion_idx if separate_opinion_idx is not None else votes_end_idx
+                       if opinion_scan_start is None or opinion_scan_start >= len(lines):
+                           opinion_scan_start = votes_end_idx if votes_end_idx > votes_start_idx else votes_start_idx
+
+                       # Collect all opinion start indices
+                       opinion_starts = []
+                       for scan_idx in range(opinion_scan_start, len(lines)):
+                           scan_line_num, scan_text = lines[scan_idx]
+                           if RE_DIVISION.match(scan_text) or RE_CASE_BRACKET.match(scan_text):
+                               break
+                           if RE_SEPARATE_OPINION.match(scan_text) or RE_SEP_OPINION_HEADER.match(scan_text):
+                               opinion_starts.append(scan_idx)
+
+                       # Deduplicate: header + attribution within 3 lines = keep header only
+                       deduped_starts = []
+                       skip_next = set()
+                       for i, idx in enumerate(opinion_starts):
+                           if idx in skip_next:
+                               continue
+                           deduped_starts.append(idx)
+                           if RE_SEP_OPINION_HEADER.match(lines[idx][1]):
+                               for j in range(i + 1, len(opinion_starts)):
+                                   if opinion_starts[j] - idx <= 3:
+                                       skip_next.add(opinion_starts[j])
+                                   else:
+                                       break
+                       opinion_starts = deduped_starts
+
+                       if opinion_starts:
+                           for op_i, op_start_idx in enumerate(opinion_starts):
+                               op_start_line, op_start_text = lines[op_start_idx]
+
+                               start_opinion_ann = self._make_annotation(
+                                   label="start_opinion",
+                                   text=op_start_text.strip(),
+                                   start_line=op_start_line,
+                                   end_line=op_start_line,
+                                   group=None
+                               )
+                               extracted_case.annotations.append(start_opinion_ann)
+
+                               # end_opinion = last non-blank before next opinion or end of case
+                               if op_i + 1 < len(opinion_starts):
+                                   end_search_limit = opinion_starts[op_i + 1]
+                               else:
+                                   end_search_limit = len(lines)
+
+                               last_nonblank_line = op_start_line
+                               last_nonblank_text = op_start_text
+                               for search_idx in range(op_start_idx + 1, end_search_limit):
+                                   s_line, s_text = lines[search_idx]
+                                   if RE_DIVISION.match(s_text) or RE_CASE_BRACKET.match(s_text):
+                                       break
+                                   if s_text.strip():
+                                       last_nonblank_line = s_line
+                                       last_nonblank_text = s_text
+
+                               end_opinion_ann = self._make_annotation(
+                                   label="end_opinion",
+                                   text=last_nonblank_text.strip(),
+                                   start_line=last_nonblank_line,
+                                   end_line=last_nonblank_line,
+                                   group=None
+                               )
+                               extracted_case.annotations.append(end_opinion_ann)
+
+                           # end_of_case = end_opinion of the last opinion
+                           end_of_case_ann = self._make_annotation(
+                               label="end_of_case",
+                               text=last_nonblank_text.strip(),
+                               start_line=last_nonblank_line,
+                               end_line=last_nonblank_line,
+                               group=None
+                           )
+                           extracted_case.annotations.append(end_of_case_ann)
+                       else:
+                           # No separate opinions
+                           if votes_lines:
+                               last_votes_line_num, last_votes_text = votes_lines[-1]
+                               end_of_case_ann = self._make_annotation(
+                                   label="end_of_case",
+                                   text=last_votes_text.strip(),
+                                   start_line=last_votes_line_num,
+                                   end_line=last_votes_line_num,
+                                   group=None
+                               )
+                           else:
+                               end_of_case_ann = self._make_annotation(
+                                   label="end_of_case",
+                                   text=end_decision_text,
+                                   start_line=end_decision_line,
+                                   end_line=end_decision_line,
+                                   group=None
+                               )
+                           extracted_case.annotations.append(end_of_case_ann)
+```
+
+**Constraints:**
+- `RE_SEP_OPINION_HEADER` is defined locally inside this block, not at module level.
+- Do NOT change anything above the `# Check for separate opinions` comment.
+- The new block must be at the same indentation level as the old one, nested inside `if votes_start_idx >= 0:`.
+- Do NOT use Unicode characters in print statements.
+- Test: case_13 should have 5 start_opinion and 5 end_opinion annotations.
+
+---
+
+### FIX-234-4: Parties Extraction — Require "vs." + Second Designation Before Stopping
+
+**Status:** DONE
+**Estimated impact:** ~9 parties corrections (cases 0, 8, 9, 19, 29, 36 — parties truncated at first designation)
+**Depends on:** None (independent, touches different code section)
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+`RE_PARTIES_END` stops at the first legal designation (e.g., "petitioners,") but the actual parties block continues through "vs. RESPONDENT NAME, respondents." The fix requires seeing both a "vs." line and a second (terminal) designation before stopping.
+
+**Root cause in code:**
+```python
+# section_extractor.py:236-242 — stops at FIRST designation
+if RE_PARTIES_END.search(text):
+    seen_designation = True
+    parties_end_idx += 1
+    while parties_end_idx < len(lines) and not lines[parties_end_idx][1].strip():
+        parties_end_idx += 1
+    break  # <-- stops here, before "vs. RESPONDENT, respondents."
+```
+
+**Fix:**
+
+1. At module level (after `RE_PARTIES_END` around line 77), add:
+   ```python
+   RE_VS_LINE = re.compile(r'^\s*vs\.?\s', re.IGNORECASE)
+   ```
+
+2. Replace the parties extraction loop (lines 225-257, the `while parties_end_idx < len(lines):` loop) with:
+   ```python
+                    parties_end_idx = parties_start_idx
+                    seen_first_designation = False
+                    seen_vs = False
+
+                    while parties_end_idx < len(lines):
+                        line_num, text = lines[parties_end_idx]
+
+                        # Stop condition (a): RE_SYLLABUS or RE_DOC_TYPE — always stop
+                        if RE_SYLLABUS.match(text) or RE_DOC_TYPE.match(text):
+                            break
+
+                        # Track "vs." lines
+                        if RE_VS_LINE.match(text) or 'vs.' in text.lower():
+                            seen_vs = True
+
+                        # Check if this line ends with a legal designation
+                        if RE_PARTIES_END.search(text):
+                            if not seen_first_designation:
+                                if seen_vs:
+                                    # Already past vs. — this is the terminal designation
+                                    parties_end_idx += 1
+                                    while parties_end_idx < len(lines) and not lines[parties_end_idx][1].strip():
+                                        parties_end_idx += 1
+                                    break
+                                else:
+                                    seen_first_designation = True
+                            else:
+                                # Second designation — terminal (e.g. "respondents.")
+                                parties_end_idx += 1
+                                while parties_end_idx < len(lines) and not lines[parties_end_idx][1].strip():
+                                    parties_end_idx += 1
+                                break
+
+                        # Stop at footnote-like lines only after terminal designation
+                        if RE_FOOTNOTE_START.match(text):
+                            if seen_first_designation and seen_vs:
+                                break
+
+                        parties_end_idx += 1
+   ```
+
+**Constraints:**
+- The `RE_VS_LINE` regex handles "vs." at line start. The `'vs.' in text.lower()` fallback handles "vs." mid-line (some OCR volumes).
+- Do NOT change the code after the loop (lines 259-287, parties text extraction and annotation creation).
+- The old `seen_designation` variable is replaced by `seen_first_designation` + `seen_vs`. Remove the old variable entirely.
+- Edge case: admin cases with "complainant, vs. RESPONDENT" on a single line work because `'vs.' in text.lower()` sets `seen_vs` before `RE_PARTIES_END` triggers on the same line.
+- Do NOT use Unicode characters in print statements.
+- Test: cases 0, 8, 9, 19, 29 should have parties that include both petitioner and respondent blocks.
+
+---
+
+### FIX-234 Dependency Graph
+
+```
+FIX-234-1 (WHEREFORE fallback + justice helpers)  -- independent
+FIX-234-4 (parties vs. continuation)               -- independent
+
+FIX-234-2 (votes termination)  -- depends on FIX-234-1
+FIX-234-3 (all separate opinions) -- depends on FIX-234-1, FIX-234-2
+
+Recommended order: FIX-234-1, then FIX-234-4 (parallel), then FIX-234-2, then FIX-234-3.
+All four modify section_extractor.py only.
+```
+
+---
+
 ## Python Dependencies to Add
 
 Add to `requirements.txt`:
@@ -1526,13 +2071,14 @@ regex_improve/
 │   ├── ocr_correction.py        # T5 (KJ-1: loads from registry)
 │   ├── confidence.py            # T6
 │   ├── llm_fallback.py          # T7
-│   ├── pipeline.py              # T8 (DIAG-3: wires diagnostics)
+│   ├── pipeline.py              # T8 (DIAG-3: wires diagnostics, MANIFEST-3: caching)
+│   ├── manifest.py              # MANIFEST-2 (detection manifest + merge logic)
 │   ├── diagnostics.py           # DIAG-1 + DIAG-2
 │   │   # FIX-1 thru FIX-6 modify: section_extractor.py, boundary_fsm.py
 │   ├── justices.json            # KJ-1 (committed, grows via harvest)
 │   ├── justice_registry.py      # KJ-1
 │   ├── harvest_justices.py      # KJ-2
-│   ├── Instructions.txt         # KJ-3 (updated)
+│   ├── Instructions.txt         # KJ-3, MANIFEST-4 (updated)
 │   └── tests/
 │       ├── __init__.py          # T9
 │       └── test_pipeline.py     # T9

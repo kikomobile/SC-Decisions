@@ -100,6 +100,12 @@ Examples:
         action="store_true",
         help="Skip LLM fallback entirely"
     )
+
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reprocessing even if manifest says volume is up to date"
+    )
     
     parser.add_argument(
         "--json",
@@ -146,6 +152,7 @@ Examples:
         print(f"LLM budget: ${args.budget:.2f}")
         print(f"Confidence threshold: {args.threshold}")
         print(f"Skip LLM: {args.skip_llm}")
+        print(f"Force reprocess: {args.force}")
         print()
         
         # Process batch
@@ -155,7 +162,8 @@ Examples:
             volume_range=volume_range,
             llm_budget=args.budget,
             confidence_threshold=args.threshold,
-            skip_llm=args.skip_llm
+            skip_llm=args.skip_llm,
+            force=args.force
         )
         
         # Scoring not supported in batch mode
@@ -178,6 +186,7 @@ Examples:
         print(f"LLM budget: ${args.budget:.2f}")
         print(f"Confidence threshold: {args.threshold}")
         print(f"Skip LLM: {args.skip_llm}")
+        print(f"Force reprocess: {args.force}")
         print()
         
         # Process volume
@@ -186,7 +195,8 @@ Examples:
             output_path=output_path,
             llm_budget=args.budget,
             confidence_threshold=args.threshold,
-            skip_llm=args.skip_llm
+            skip_llm=args.skip_llm,
+            force=args.force
         )
         
         # Run scorer if requested

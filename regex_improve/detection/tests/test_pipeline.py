@@ -364,24 +364,158 @@ class TestPipelineIntegration(unittest.TestCase):
             raise
 
 
+    def test_detection_method_present(self):
+        """Test that every annotation has a detection_method field."""
+        volume_data = self.output_data.get("volumes", [])
+        self.assertGreater(len(volume_data), 0, "No volumes in output")
+
+        cases = volume_data[0].get("cases", [])
+        for case in cases:
+            for ann in case.get("annotations", []):
+                self.assertIn(
+                    "detection_method", ann,
+                    f"Annotation {ann.get('label')} in {case.get('case_id')} "
+                    f"missing detection_method field"
+                )
+                self.assertIn(
+                    ann["detection_method"], ("regex", "llm"),
+                    f"Invalid detection_method '{ann['detection_method']}'"
+                )
+
+
+class TestManifest(unittest.TestCase):
+    """Tests for the detection manifest module."""
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="manifest_test_"))
+
+    def tearDown(self):
+        import shutil
+        if self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir)
+
+    def test_roundtrip_save_load(self):
+        """Test that save/load roundtrip preserves manifest data."""
+        from detection.manifest import (
+            load_manifest, save_manifest, update_volume_entry
+        )
+
+        manifest = {}
+        update_volume_entry(
+            manifest, "Volume_226",
+            prediction_file="Volume_226_predicted.json",
+            total_cases=72, llm_calls=0, has_llm_labels=False,
+            confidence_threshold=0.7,
+            source_file_mtime="2026-03-12T19:22:00"
+        )
+        save_manifest(self.temp_dir, manifest)
+        loaded = load_manifest(self.temp_dir)
+        self.assertIn("Volume_226", loaded)
+        self.assertEqual(loaded["Volume_226"]["total_cases"], 72)
+        self.assertEqual(loaded["Volume_226"]["status"], "done")
+
+    def test_merge_preserves_llm(self):
+        """Test that merge keeps previous LLM annotations."""
+        from detection.manifest import merge_annotations
+
+        prev = [
+            {"label": "date", "text": "old", "group": None, "detection_method": "regex"},
+            {"label": "parties", "text": "LLM parties", "group": None, "detection_method": "llm"},
+        ]
+        curr = [
+            {"label": "date", "text": "new", "group": None, "detection_method": "regex"},
+        ]
+        merged = merge_annotations(prev, curr)
+        self.assertEqual(len(merged), 2)
+        texts = {a["label"]: a["text"] for a in merged}
+        self.assertEqual(texts["date"], "new")
+        self.assertEqual(texts["parties"], "LLM parties")
+
+    def test_merge_replaces_on_force(self):
+        """Test that merge discards LLM annotations when force_llm_rerun=True."""
+        from detection.manifest import merge_annotations
+
+        prev = [
+            {"label": "date", "text": "old", "group": None, "detection_method": "regex"},
+            {"label": "parties", "text": "LLM parties", "group": None, "detection_method": "llm"},
+        ]
+        curr = [
+            {"label": "date", "text": "new", "group": None, "detection_method": "regex"},
+        ]
+        merged = merge_annotations(prev, curr, force_llm_rerun=True)
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["label"], "date")
+
+    def test_new_volume_needs_reprocessing(self):
+        """Test that a volume not in the manifest needs reprocessing."""
+        from detection.manifest import should_reprocess
+
+        reprocess, reason = should_reprocess({}, "Volume_227", Path("/nonexistent"), False)
+        self.assertTrue(reprocess)
+        self.assertIn("not in manifest", reason)
+
+    def test_up_to_date_skips(self):
+        """Test that an up-to-date volume is skipped."""
+        from detection.manifest import should_reprocess, update_volume_entry, _get_source_mtime
+
+        # Create a source file
+        src_file = self.temp_dir / "Volume_226.txt"
+        src_file.write_text("test")
+        mtime = _get_source_mtime(src_file)
+
+        manifest = {}
+        update_volume_entry(
+            manifest, "Volume_226",
+            prediction_file="Volume_226_predicted.json",
+            total_cases=72, llm_calls=0, has_llm_labels=False,
+            confidence_threshold=0.7,
+            source_file_mtime=mtime
+        )
+        reprocess, reason = should_reprocess(manifest, "Volume_226", src_file, False)
+        self.assertFalse(reprocess)
+        self.assertIn("up to date", reason)
+
+    def test_force_always_reprocesses(self):
+        """Test that --force always triggers reprocessing."""
+        from detection.manifest import should_reprocess, update_volume_entry, _get_source_mtime
+
+        src_file = self.temp_dir / "Volume_226.txt"
+        src_file.write_text("test")
+        mtime = _get_source_mtime(src_file)
+
+        manifest = {}
+        update_volume_entry(
+            manifest, "Volume_226",
+            prediction_file="Volume_226_predicted.json",
+            total_cases=72, llm_calls=0, has_llm_labels=False,
+            confidence_threshold=0.7,
+            source_file_mtime=mtime
+        )
+        reprocess, reason = should_reprocess(manifest, "Volume_226", src_file, True)
+        self.assertTrue(reprocess)
+        self.assertIn("force", reason)
+
+
 def run_tests():
     """Run the integration tests."""
     # Change to the regex_improve directory for proper imports
     original_cwd = os.getcwd()
     regex_improve_dir = Path(__file__).resolve().parent.parent.parent
-    
+
     try:
         os.chdir(regex_improve_dir)
         print(f"Running tests from: {os.getcwd()}")
-        
+
         # Run tests
         loader = unittest.TestLoader()
-        suite = loader.loadTestsFromTestCase(TestPipelineIntegration)
+        suite = unittest.TestSuite()
+        suite.addTests(loader.loadTestsFromTestCase(TestPipelineIntegration))
+        suite.addTests(loader.loadTestsFromTestCase(TestManifest))
         runner = unittest.TextTestRunner(verbosity=2)
         result = runner.run(suite)
-        
+
         return result.wasSuccessful()
-        
+
     finally:
         os.chdir(original_cwd)
 
