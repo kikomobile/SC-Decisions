@@ -1,6 +1,7 @@
 """Integration tests for the detection pipeline.
 
 End-to-end validation against Volume 226 ground truth.
+Includes ERA-7: Validation against both JSON and Markdown ground truth files.
 """
 
 import unittest
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 # Import pipeline and scorer
 from detection.pipeline import process_volume
 from detection.scorer import score_volume
+from detection.pattern_registry import get_era, get_fallback_order, get_era_config
 
 
 class TestPipelineIntegration(unittest.TestCase):
@@ -496,6 +498,89 @@ class TestManifest(unittest.TestCase):
         self.assertIn("force", reason)
 
 
+class TestERA7Validation(unittest.TestCase):
+    """ERA-7: Era selection, fallback order, and pipeline execution on Vol 421."""
+
+    def test_era_selection(self):
+        """Test that pattern_registry selects correct era for known volumes."""
+        self.assertEqual(get_era(226).name, "era1")
+        self.assertEqual(get_era(421).name, "era2")
+        self.assertEqual(get_era(676).name, "era3")
+        self.assertEqual(get_era(813).name, "era4")
+        self.assertEqual(get_era(960).name, "era5")
+        self.assertEqual(get_era(None).name, "era1")   # default
+        self.assertEqual(get_era(9999).name, "era1")    # out of range
+
+    def test_fallback_order(self):
+        """Test that fallback order expands outward from matched era."""
+        # era3 (vol 600): should try era3 first, then expand outward
+        order = get_fallback_order(600)
+        self.assertEqual(order[0], "era3")  # matched first
+        self.assertEqual(len(order), 5)     # all eras included
+        # Outward: right first (era4), then left (era2), then era5, then era1
+        self.assertEqual(order[1], "era4")
+        self.assertEqual(order[2], "era2")
+
+        # era1 (vol 226): only rightward expansion
+        order1 = get_fallback_order(226)
+        self.assertEqual(order1[0], "era1")
+        self.assertEqual(order1[1], "era2")
+
+        # era5 (vol 960): only leftward expansion
+        order5 = get_fallback_order(960)
+        self.assertEqual(order5[0], "era5")
+        self.assertEqual(order5[1], "era4")
+
+    def test_era_config_has_syllabus_flag(self):
+        """Test that era5 has has_syllabus=False, others True."""
+        for vol in [226, 421, 600, 813]:
+            config = get_era_config(vol)
+            self.assertTrue(config.has_syllabus, f"Vol {vol} should have has_syllabus=True")
+        era5_config = get_era_config(960)
+        self.assertFalse(era5_config.has_syllabus)
+
+    def test_era_config_patterns_compiled(self):
+        """Test that all pattern fields in EraConfig are compiled regex objects."""
+        import re
+        config = get_era_config(226)
+        pattern_fields = [
+            're_division', 're_page_marker', 're_volume_header',
+            're_philippine_reports', 're_short_title', 're_syllabus_header',
+            're_case_bracket', 're_case_bracket_no_close', 're_syllabus',
+            're_counsel_header', 're_doc_type', 're_ponente', 're_per_curiam',
+            're_so_ordered', 're_separate_opinion', 're_votes_content',
+            're_footnote_start', 're_wherefore', 're_counsel_designation',
+            're_parties_end', 're_vs_line'
+        ]
+        for field_name in pattern_fields:
+            pattern = getattr(config, field_name)
+            self.assertIsInstance(pattern, re.Pattern,
+                                 f"EraConfig.{field_name} should be a compiled regex")
+
+    def test_volume_421_pipeline(self):
+        """Test pipeline execution on Volume 421 (era2) if sample is available."""
+        test_dir = Path(__file__).resolve().parent.parent.parent
+        vol_path = test_dir / "samples" / "Volume_421.txt"
+        if not vol_path.exists():
+            self.skipTest("Volume_421.txt not in samples/")
+
+        result = process_volume(
+            volume_path=vol_path,
+            skip_llm=True,
+            force=True
+        )
+        # Should detect cases
+        self.assertGreater(len(result.cases), 0,
+                           "Pipeline detected 0 cases on Volume 421")
+        # All cases should have start_of_case and case_number annotations
+        for case in result.cases:
+            labels = {ann['label'] for ann in case['annotations']}
+            self.assertIn('start_of_case', labels,
+                          f"{case['case_id']} missing start_of_case")
+            self.assertIn('case_number', labels,
+                          f"{case['case_id']} missing case_number")
+
+
 def run_tests():
     """Run the integration tests."""
     # Change to the regex_improve directory for proper imports
@@ -511,6 +596,7 @@ def run_tests():
         suite = unittest.TestSuite()
         suite.addTests(loader.loadTestsFromTestCase(TestPipelineIntegration))
         suite.addTests(loader.loadTestsFromTestCase(TestManifest))
+        suite.addTests(loader.loadTestsFromTestCase(TestERA7Validation))
         runner = unittest.TextTestRunner(verbosity=2)
         result = runner.run(suite)
 

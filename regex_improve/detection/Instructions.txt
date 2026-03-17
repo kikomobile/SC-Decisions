@@ -1,0 +1,552 @@
+Detection Pipeline - Usage Instructions
+=======================================
+
+This pipeline extracts structured case data from Philippine Supreme Court
+volume text files using era-tagged regex patterns (pattern_registry.py),
+OCR correction, confidence scoring, and optional LLM fallback (DeepSeek V3).
+Volume number determines which era config is used; 5 eras cover volumes 121-999.
+
+Tested on Volume 226 (72 cases, 94.5% F1 against human-annotated ground truth).
+
+
+1. PREREQUISITES
+----------------
+
+    pip install rapidfuzz>=3.0.0 openai>=1.0.0
+
+    For LLM fallback, set your DeepSeek API key:
+        - Add DEEPSEEK_API_KEY=your_key to .env (gitignored, safe)
+        - Or: export DEEPSEEK_API_KEY=your_key
+
+    LLM features are optional. The pipeline works without an API key
+    (regex-only mode, --skip-llm).
+
+
+2. SINGLE VOLUME
+----------------
+
+    cd regex_improve
+    python -m detection ../downloads/Volume_226.txt
+
+    Output: ../downloads/Volume_226.predicted.json
+
+    Custom output path:
+        python -m detection ../downloads/Volume_226.txt -o output/vol226.json
+
+    Skip LLM (regex-only, faster):
+        python -m detection ../downloads/Volume_226.txt --skip-llm
+
+    Force reprocessing (ignore manifest cache):
+        python -m detection ../downloads/Volume_226.txt --force
+
+    Score against ground truth after extraction:
+        python -m detection ../downloads/Volume_226.txt \
+            --score annotation_exports/ground_truth_20260309_144413.json
+
+    Score with JSON output (machine-readable):
+        python -m detection ../downloads/Volume_226.txt \
+            --score annotation_exports/ground_truth_20260309_144413.json --json
+
+
+3. BATCH PROCESSING
+-------------------
+
+    cd regex_improve
+    python -m detection ../downloads --range 226-260
+
+    Output: ../downloads/predictions/Volume_NNN_predicted.json (one per volume)
+
+    Custom output directory:
+        python -m detection ../downloads --range 226-260 -o output/phase1/
+
+    Full corpus (all 860 volumes, 121-961):
+        python -m detection ../downloads --range 121-961 --skip-llm
+
+    Note: Batch mode shares a single LLM budget across all volumes.
+
+
+4. ITERATION STRATEGY (era-based)
+----------------------------------
+
+The pipeline uses an era-tagged pattern registry (see Section 11A) that
+automatically selects the correct regex patterns based on volume number.
+You can run wider ranges than before, but phased rollout is still recommended
+to build ground truth and catch era-boundary issues.
+
+    Phase 1 — era1: Volumes 121-260 (1980s baseline, OCR-heavy)
+        python -m detection ../downloads --range 121-260 --skip-llm
+        - Ground truth: Volume 226 (72 cases)
+        - Expected: high accuracy, patterns tuned for this era
+
+    Phase 2 — era2: Volumes 261-500 (1990-2005)
+        python -m detection ../downloads --range 261-500 --skip-llm
+        - Ground truth: Volume 421 (annotate 10-15 cases)
+        - Same patterns as era1 currently; era2 overrides can be added
+          in pattern_registry.py without touching other modules
+
+    Phase 3 — era3: Volumes 501-700 (2005-2012, spaced D E C I S I O N)
+        python -m detection ../downloads --range 501-700 --skip-llm
+        - Ground truth: Volume 676 (annotate 10-15 cases)
+        - This era introduces "D E C I S I O N" headers (already handled
+          by re_doc_type across all eras)
+
+    Phase 4 — era4: Volumes 701-900 (2012-2022)
+        python -m detection ../downloads --range 701-900 --skip-llm
+        - Ground truth: Volume 813 (annotate 10-15 cases)
+
+    Phase 5 — era5: Volumes 901-999 (2022-2024, modern digital)
+        python -m detection ../downloads --range 901-961 --skip-llm
+        - Ground truth: Volume 960 (annotate 10-15 cases)
+        - has_syllabus=False: syllabus extraction is skipped entirely
+        - Expect the highest LLM fallback rate and lowest regex accuracy
+
+    After each phase:
+        1. Run the scorer against all annotated ground truths
+        2. Check that F1 did not regress on previously-passing volumes
+        3. If an era needs different patterns, add overrides in
+           pattern_registry.py _init_registry() — no other files change
+        4. Re-run failed volumes
+
+    Sample volumes already available in regex_improve/samples/:
+        Volume_251.txt, Volume_421.txt, Volume_676.txt,
+        Volume_813.txt, Volume_960.txt
+
+
+5. TUNABLE PARAMETERS
+---------------------
+
+--threshold (confidence threshold, default: 0.7)
+
+    Controls which cases go to LLM fallback. Cases scoring below this
+    threshold are sent to DeepSeek for re-extraction.
+
+    Lower (e.g., 0.5):
+        - Fewer LLM calls, faster, cheaper
+        - More cases stay with regex-only results (lower accuracy on edge cases)
+        - Good for: familiar eras where regex works well (Phase 1)
+
+    Higher (e.g., 0.85):
+        - More LLM calls, slower, more expensive
+        - Better accuracy on difficult cases
+        - Good for: unfamiliar eras, first run on new volume ranges
+
+    Recommendation: Start with 0.7. Raise to 0.85 for Phase 5 (modern volumes).
+
+
+--budget (LLM budget in USD, default: 5.00)
+
+    Maximum amount to spend on DeepSeek API calls. When exhausted, the
+    pipeline continues with regex-only results (no crash).
+
+    DeepSeek V3 rates: $0.27/M input tokens, $1.10/M output tokens.
+    A typical case costs ~$0.001 per LLM call.
+
+    Budget allocation per phase (from DETECTION_PLAN.md):
+        Phase 1 (226-260):  $0.15  (~35 volumes, 10% fallback rate)
+        Phase 2 (261-500):  $1.05  (~240 volumes, 15% fallback rate)
+        Phase 3 (501-700):  $1.45  (~200 volumes, 25% fallback rate)
+        Phase 4 (701-900):  $0.90  (~200 volumes, 15% fallback rate)
+        Phase 5 (901-961):  $0.55  (~61 volumes, 30% fallback rate)
+        Total:              $4.10  (leaves $0.90 buffer)
+
+    For regex-only runs, use --skip-llm (ignores budget entirely).
+
+
+--skip-llm (flag, no value)
+
+    Skip LLM fallback entirely. Fastest mode. No API key required.
+    Use this for:
+        - Initial exploration of a new volume range
+        - Phases where regex accuracy is already high
+        - When you want to see baseline regex performance before LLM
+
+
+--iou (IoU threshold for scorer, default: 0.8)
+
+    When using --score, this controls how strictly predicted spans must
+    overlap with ground truth to count as a match.
+
+    Lower (e.g., 0.5): More lenient matching. A prediction that overlaps
+        50% of the ground truth span counts as correct.
+    Higher (e.g., 0.9): Stricter. Predictions must nearly perfectly match.
+
+    Position labels (start_of_case, end_decision, etc.) always use
+    any-overlap matching regardless of this setting.
+
+
+6. INTERNAL CONSTANTS
+---------------------
+
+KNOWN_JUSTICES (justices.json, loaded by justice_registry.py)
+    List of known justice surnames for fuzzy ponente matching.
+    Pre-seeded with Vol 226 justices (1986 court). Grows dynamically
+    via harvest_justices.py after each batch run.
+
+REQUIRED_LABELS (EraConfig in pattern_registry.py)
+    Labels that must be present for a case to score high confidence.
+    Currently: start_of_case, case_number, date, division, doc_type,
+    start_decision, end_decision, votes, end_of_case.
+    Stored per-era in EraConfig.required_labels (frozenset).
+
+PARTIES_LEN_RANGE / VOTES_LEN_RANGE (EraConfig in pattern_registry.py)
+    Expected character length range for parties (50-2000) and votes
+    (20-500). Cases outside these ranges score 0 on length checks.
+    Stored per-era in EraConfig.parties_len_range / votes_len_range.
+    Can be overridden per-era for modern volumes with longer party blocks.
+
+bracket_search_limit / consolidated_search_limit (boundary_fsm.py)
+    How many non-noise lines the FSM searches for a case bracket
+    after finding a division header (default: 10), and how many
+    lines to search for a second bracket in consolidated cases
+    (default: 10). Increase if cases in later volumes have more
+    lines between division headers and brackets.
+
+
+7. OUTPUT FORMAT
+----------------
+
+Output JSON follows format_version=2 schema, loadable in the annotation GUI:
+
+    {
+      "format_version": 2,
+      "status": "auto_extracted",
+      "volumes": [{
+        "volume_name": "Volume_226",
+        "total_cases": 72,
+        "cases": [{
+          "case_id": "vol226_case_0",
+          "status": "auto_extracted",
+          "notes": "confidence: 0.950",
+          "annotations": [{
+            "label": "start_of_case",
+            "text": "SECOND DIVISION",
+            "start_char": 8432,
+            "end_char": 8447,
+            "detection_method": "regex",
+            ...
+          }]
+        }]
+      }],
+      "metadata": {
+        "pipeline_version": "1.0",
+        "llm_budget_used": 0.001,
+        "llm_calls": 1,
+        "confidence_threshold": 0.7,
+        "ocr_corrections": 12
+      }
+    }
+
+    16 possible annotation labels per case:
+        start_of_case, case_number, date, division, parties,
+        start_syllabus, end_syllabus, counsel, doc_type, ponente,
+        start_decision, end_decision, votes, start_opinion,
+        end_opinion, end_of_case
+
+
+8. STANDALONE SCORER
+--------------------
+
+Score predictions against ground truth independently:
+
+    cd regex_improve
+    python -m detection.scorer \
+        --predicted output/Volume_226_predicted.json \
+        --ground-truth annotation_exports/ground_truth_20260309_144413.json
+
+    Machine-readable JSON output:
+        python -m detection.scorer --predicted pred.json --ground-truth gt.json --json
+
+    Custom IoU threshold:
+        python -m detection.scorer --predicted pred.json --ground-truth gt.json --iou 0.5
+
+
+9. HARVESTING JUSTICE NAMES
+---------------------------
+
+The pipeline uses a list of known justice surnames (justices.json) for
+fuzzy ponente matching and confidence scoring. This list grows dynamically
+as you process more volumes.
+
+After processing a batch of volumes:
+
+    cd regex_improve
+    python -m detection.harvest_justices ../downloads/predictions/
+
+    Dry run (see what would be added without modifying justices.json):
+        python -m detection.harvest_justices ../downloads/predictions/ --dry-run
+
+    Custom confidence threshold (default 0.9):
+        python -m detection.harvest_justices ../downloads/predictions/ --threshold 0.85
+
+    Single file:
+        python -m detection.harvest_justices ../downloads/Volume_226.predicted.json
+
+The harvester only collects ponente names from cases with confidence
+scores >= 0.9 (by default). This ensures only reliably-extracted names
+are added to the registry. "PER CURIAM" entries are always skipped.
+
+Recommended workflow after each phase:
+
+    1. Run the pipeline:
+        python -m detection ../downloads --range 226-260 --skip-llm
+
+    2. Harvest new justice names:
+        python -m detection.harvest_justices ../downloads/predictions/
+
+    3. Re-run the pipeline to benefit from improved ponente matching:
+        python -m detection ../downloads --range 226-260 --skip-llm
+
+    Step 3 is optional but recommended. The expanded justice list improves
+    both fuzzy ponente correction (ocr_correction.py) and the ponente_known
+    confidence check (confidence.py), which can shift borderline cases from
+    low to high confidence.
+
+
+10. PATCH BLANK PAGES (OCR REPAIR)
+-----------------------------------
+
+Tesseract occasionally produces no text for pages that contain real content.
+This tool re-OCRs those blank pages from the original PDFs and patches the
+text files in-place.
+
+Requirements (only needed for patching, not for --dry-run):
+    pip install pdf2image pytesseract opencv-python-headless
+    Tesseract OCR and Poppler must be installed (same as 02_processor.ipynb).
+
+Scan for blank pages (dry-run, no OCR needed):
+
+    cd regex_improve
+    python -m detection.patch_blank_pages ../downloads/Volume_227.txt --dry-run
+
+    Batch scan (all volumes):
+        python -m detection.patch_blank_pages ../downloads --dry-run
+
+    Output example:
+        Volume_227.txt           18 blank content pages  (PDF: found)
+        Volume_228.txt            3 blank content pages  (PDF: found)
+        Total: 21 blank pages across 2 volumes
+
+Patch a single volume:
+
+    python -m detection.patch_blank_pages ../downloads/Volume_227.txt
+
+    This will:
+        1. Find blank pages (skipping front/back matter pages 1-10 and last 10)
+        2. Create Volume_227.txt.bak backup
+        3. Re-OCR each blank page from Volume_227.pdf (same directory)
+        4. Patch pages that produced >= 10 chars (default --min-chars threshold)
+        5. Report: "Page 517: 1,234 chars -> PATCHED" or "Page 42: 3 chars -> still blank (genuine)"
+
+Patch all volumes in a directory:
+
+    python -m detection.patch_blank_pages ../downloads
+
+    Processes every Volume_*.txt file. Skips volumes where the PDF is missing.
+
+Options:
+
+    --pdf-dir PATH     PDF directory (default: same as txt file/directory)
+    --dpi N            OCR resolution (default: 300)
+    --min-chars N      Minimum chars for a page to count as non-blank (default: 10)
+    --no-backup        Skip .txt.bak backup creation
+
+Typical workflow:
+
+    1. Dry-run to see which volumes have blank pages:
+        python -m detection.patch_blank_pages ../downloads --dry-run
+
+    2. Patch a specific volume:
+        python -m detection.patch_blank_pages ../downloads/Volume_227.txt
+
+    3. Re-run the detection pipeline on the patched volume:
+        python -m detection ../downloads/Volume_227.txt --skip-llm
+
+    4. Compare results (new cases should appear where blank pages were filled)
+
+Multi-strategy OCR:
+
+    The tool tries three strategies per page, stopping at the first that
+    produces >= --min-chars characters:
+
+        1. Raw OCR         — Tesseract on the unprocessed grayscale image.
+                             This is tried FIRST because the original
+                             preprocessing is what caused the blank pages.
+        2. Preprocessed    — Same pipeline as 02_processor.ipynb (medianBlur,
+                             contrast stretch, adaptive threshold, sharpen).
+                             Requires cv2 (opencv-python-headless). Skipped
+                             with a warning if cv2 is not installed.
+        3. Raw @400 DPI    — Re-renders the page at 400 DPI and runs raw OCR.
+                             Only tried if default --dpi is below 400.
+
+    On Volume 227, raw OCR recovered 21 of 26 blank pages. The remaining
+    5 are genuinely blank in the PDF (separator pages, citation pages).
+
+Notes:
+    - Pages that are genuinely blank in the PDF (e.g., intentional separator
+      pages) will still produce < 10 chars and remain unpatched.
+    - The backup file (.txt.bak) is overwritten on each run. To keep multiple
+      backups, rename it before re-running.
+    - cv2 is optional. Without it, only raw strategies (1 and 3) are used.
+      Install with: pip install opencv-python-headless
+
+
+11. SUGGESTIONS FOR IMPROVING THE PIPELINE
+-------------------------------------------
+
+A. Era-tagged pattern registry — IMPLEMENTED
+
+    The pipeline uses pattern_registry.py as the single source of truth for
+    all regex patterns, scoring settings, and behavioral flags. Each volume
+    range maps to an "era" with its own EraConfig instance.
+
+    Architecture:
+
+        pattern_registry.py
+        ├── Era dataclass (name, vol_start, vol_end, description)
+        ├── EraConfig dataclass (21 compiled re.Pattern fields + scoring settings + flags)
+        ├── DEFAULT_ERAS list (5 eras, boundaries configurable)
+        ├── _build_baseline_config(era_name, **overrides) — factory function
+        ├── _init_registry() — builds all 5 configs at module load
+        ├── get_era(vol_num) → Era
+        ├── get_era_config(vol_num) → EraConfig
+        ├── get_fallback_order(vol_num) → list of era names
+        └── get_era_config_by_name(era_name) → EraConfig
+
+    5 eras with configurable boundaries:
+
+        era1:  vol 121-260   1980s baseline (OCR-heavy, non-spaced DECISION)
+        era2:  vol 261-500   1990-2005 (non-spaced DECISION, varied OCR quality)
+        era3:  vol 501-700   2005-2012 (spaced D E C I S I O N transition)
+        era4:  vol 701-900   2012-2022 (modern digital, spaced DECISION)
+        era5:  vol 901-999   2022-2024 (no SYLLABUS, Unicode ligature issues)
+
+    Volume number plumbing:
+
+        pipeline.py extracts vol_num from the filename (e.g., "Volume_421" → 421)
+        and passes it to every module constructor:
+
+            VolumePreprocessor(vol_num=vol_num)
+            CaseBoundaryDetector(preprocessor, vol_num=vol_num)
+            SectionExtractor(preprocessor, vol_num=vol_num)
+
+        Each module stores self.config = get_era_config(vol_num) and uses
+        self.config.re_* instead of module-level RE_* constants. No module
+        imports regex patterns from another module.
+
+    EraConfig fields (21 patterns + scoring + flags):
+
+        Preprocessing:     re_page_marker, re_volume_header, re_philippine_reports,
+                           re_short_title, re_division, re_syllabus_header
+        Boundary FSM:      re_case_bracket, re_case_bracket_no_close
+        Section extraction: re_syllabus, re_counsel_header, re_doc_type, re_ponente,
+                           re_per_curiam, re_so_ordered, re_separate_opinion,
+                           re_votes_content, re_footnote_start, re_wherefore,
+                           re_counsel_designation, re_parties_end, re_vs_line
+        Confidence scoring: required_labels (frozenset), label_order (tuple),
+                           parties_len_range, votes_len_range
+        Behavioral flags:  has_syllabus (False for era5 — skips syllabus extraction)
+
+    Fallthrough (boundary_fsm.py):
+
+        When the boundary FSM fails to match a division or bracket pattern using
+        the primary era, it tries adjacent eras in outward order. Example for
+        vol 600 (era3): era3 → era4 → era2 → era5 → era1.
+
+        get_fallback_order(vol_num) returns this sequence. boundary_fsm.py stores
+        all fallback configs at init and tries them in _match_division_with_fallthrough()
+        and _match_bracket_with_fallthrough().
+
+        Currently all eras share identical patterns, so fallthrough is a no-op.
+        When era-specific pattern overrides are added, fallthrough will activate
+        automatically without code changes.
+
+    Adding era-specific patterns:
+
+        To customize patterns for a single era, add overrides in _init_registry():
+
+            if era.name == "era3":
+                overrides["re_doc_type"] = re.compile(
+                    r'^D\s+E\s+C\s+I\s+S\s+I\s+O\s+N\s*$'
+                )
+
+        This changes era3 without touching era1/2/4/5. No other files need
+        modification. The has_syllabus=False override for era5 is already
+        implemented this way.
+
+    Test coverage (detection/tests/test_pipeline.py::TestERA7Validation):
+
+        - test_era_selection: correct era for representative volumes + edge cases
+        - test_fallback_order: outward expansion from matched era
+        - test_era_config_has_syllabus_flag: True for eras 1-4, False for era5
+        - test_era_config_patterns_compiled: all 21 re_* fields are re.Pattern
+        - test_volume_421_pipeline: full pipeline on Vol 421 produces valid cases
+
+B. Self-diagnostic failure reporting
+
+    The pipeline currently logs confidence scores but doesn't aggregate
+    failure signals at the volume level. Adding volume-level diagnostics
+    would help identify when the pipeline hits an unfamiliar era:
+
+        - Mean confidence below 0.75: alert "unfamiliar formatting"
+        - >10% of cases missing case_number/date/doc_type: bracket regex failing
+        - Detected case count vs TOC case count mismatch >10%: boundary errors
+        - Parties/votes span lengths >3 standard deviations from known mean
+        - Lines that partially match structural patterns but don't fully match
+          (candidate patterns for the next regex update)
+
+    This would be a new module (detection/diagnostics.py) called at the end
+    of process_volume, appending a "diagnostics" section to the output JSON.
+
+C. Expand KNOWN_JUSTICES dynamically from processed volumes
+
+    IMPLEMENTED — see Section 9. The pipeline now loads justice names from
+    justices.json (pre-seeded with 11 Vol 226 justices). After each batch
+    run, use `python -m detection.harvest_justices` to extract new names
+    from high-confidence cases and add them to the registry.
+
+
+12. DETECTION MANIFEST AND CACHING
+------------------------------------
+
+The pipeline maintains a detection_manifest.json file in the output
+directory that tracks which volumes have been processed and their status.
+
+Manifest location:
+    <output_dir>/detection_manifest.json
+
+The manifest enables incremental processing:
+    - Volumes that are up to date are skipped automatically
+    - Regex is re-run (free) and results are diffed/merged
+    - Cached LLM results (expensive) are preserved across runs
+    - Source file modification time (mtime) triggers auto-invalidation
+
+Per-annotation method tracking:
+    Every annotation has a "detection_method" field ("regex" or "llm")
+    that records how it was extracted. This enables the merge logic
+    to preserve LLM results while replacing regex results.
+
+Merge behavior:
+    When reprocessing a volume that has previous predictions:
+    - Previous regex annotations are replaced by current regex results
+    - Previous LLM annotations are kept (preserving expensive API work)
+    - New labels from current regex are added
+    - Labels missing from current but present in previous are kept
+
+The --force flag:
+    python -m detection ../downloads/Volume_226.txt --force
+
+    Bypasses the manifest cache entirely. The volume is fully reprocessed
+    from scratch. Previous LLM annotations are NOT preserved.
+
+Flag interaction matrix:
+
+    --force  --skip-llm  Behavior
+    no       no          Re-run regex, keep cached LLM, run LLM for new low-confidence
+    no       yes         Re-run regex, keep cached LLM, no new LLM calls
+    yes      no          Full pipeline from scratch, run LLM for low-confidence
+    yes      yes         Full pipeline from scratch, no LLM
+
+Mtime auto-invalidation:
+    If the source .txt file has been modified since the last run (e.g.,
+    after patching blank pages), the pipeline automatically reprocesses
+    the volume even without --force.

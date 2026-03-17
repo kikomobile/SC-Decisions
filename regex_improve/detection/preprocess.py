@@ -9,31 +9,18 @@ if str(_REGEX_IMPROVE_DIR) not in sys.path:
     sys.path.insert(0, str(_REGEX_IMPROVE_DIR))
 
 from gui.volume_loader import VolumeLoader
-
-# Module-level regex constants
-RE_PAGE_MARKER = re.compile(r'^--- Page \d+ ---$')
-RE_VOLUME_HEADER = re.compile(r'^VOL[.,]\s*\d+.*\d+\s*$')
-RE_PHILIPPINE_REPORTS = re.compile(r'^\d+\s+PHILIPPINE REPORTS\s*$')
-RE_SHORT_TITLE = re.compile(
-    r'^[A-Z][A-Za-z\s,.\'\"\-\u2018\u2019\u201c\u201d]+'
-    r'(?:v|y|V|Y)s?\.'
-    r'[A-Za-z\s,.\'\"\-\u2018\u2019\u201c\u201d]+$'
-)
-# Division header regex (used to prevent marking division headers as noise)
-RE_DIVISION = re.compile(
-    r'^(EN\s*BAN\s*C|(?:FIRST|SECOND|THIRD)\s+DIVIS[ILO]*[ILO]+N)\s*$',
-    re.IGNORECASE
-)
-RE_SYLLABUS_HEADER = re.compile(r'^SY[IL]?LABUS\s*$', re.IGNORECASE)
+from .pattern_registry import get_era_config
 
 
 class VolumePreprocessor:
     """Preprocesses volume text to classify noise lines without modifying the text."""
 
-    def __init__(self):
+    def __init__(self, vol_num: Optional[int] = None):
         self.loader: VolumeLoader = VolumeLoader()
         self.noise_mask: list[bool] = []
         self.volume_name: str = ""
+        self.vol_num: Optional[int] = vol_num
+        self.config = get_era_config(vol_num)
 
     def load(self, path: Path) -> str:
         """Load volume via self.loader.load(path), set self.volume_name = path.name,
@@ -62,18 +49,18 @@ class VolumePreprocessor:
         
         # Pass 1: definite noise
         for i, line in enumerate(lines):
-            if (RE_PAGE_MARKER.match(line) or 
-                RE_VOLUME_HEADER.match(line) or 
-                RE_PHILIPPINE_REPORTS.match(line)):
+            if (self.config.re_page_marker.match(line) or 
+                self.config.re_volume_header.match(line) or 
+                self.config.re_philippine_reports.match(line)):
                 self.noise_mask[i] = True
         
         # Pass 2: contextual noise (short titles)
         for i, line in enumerate(lines):
             # Skip division headers and syllabus headers - they're not noise even if they match RE_SHORT_TITLE
-            if RE_DIVISION.match(line) or RE_SYLLABUS_HEADER.match(line):
+            if self.config.re_division.match(line) or self.config.re_syllabus_header.match(line):
                 continue
                 
-            if RE_SHORT_TITLE.match(line):
+            if self.config.re_short_title.match(line):
                 # Find previous non-blank line
                 prev_idx = i - 1
                 while prev_idx >= 0 and lines[prev_idx].strip() == "":

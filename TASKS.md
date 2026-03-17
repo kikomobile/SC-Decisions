@@ -2092,3 +2092,878 @@ regex_improve/
 └── samples/
     └── Volume_*.txt
 ```
+
+---
+
+## Era-Tagged Pattern Registry (ERA-1 thru ERA-7)
+
+The detection pipeline currently uses one set of regex patterns for all volumes (121-961). Formatting changes in discrete transitions across decades (Instructions.txt Section 11A). These tasks implement era-tagged pattern sets so each volume range uses optimized patterns, with confidence-based fallthrough to adjacent eras.
+
+**Architecture overview:**
+- New module `pattern_registry.py` defines 5 eras and holds all compiled regex patterns per era
+- Volume number is extracted early in `process_volume()` and threaded through all constructors
+- Each module (`preprocess.py`, `boundary_fsm.py`, `section_extractor.py`, `confidence.py`) gets patterns from the registry instead of using module-level constants
+- On low mean confidence after extraction, the pipeline retries with adjacent era patterns (outward from matched era) before falling through to LLM
+
+**5 Eras (configurable boundaries):**
+
+| Era | Volumes | Period | Key Traits |
+|-----|---------|--------|------------|
+| era1 | 121-260 | 1980s | Baseline OCR, non-spaced DECISION, SYLLABUS present |
+| era2 | 261-500 | 1990-2005 | Non-spaced DECISION, varied OCR quality |
+| era3 | 501-700 | 2005-2012 | Spaced `D E C I S I O N` transition, SYLLABUS present |
+| era4 | 701-900 | 2012-2022 | Standardized digital, spaced DECISION |
+| era5 | 901-999 | 2022-2024 | No SYLLABUS, Unicode ligature issues, counsel moves after body |
+
+**Ground truths available:**
+- Era 1 (Vol 226): `annotation_exports/ground_truth_20260309_144413.json` (72 cases)
+- Era 2 (Vol 421): `annotation_exports/ground_truth_20260312_162916.json`
+
+**Validation after every task:**
+```
+cd regex_improve
+python -m detection ../downloads/Volume_226.txt --score annotation_exports/ground_truth_20260309_144413.json --skip-llm --force
+```
+F1 must remain >= 0.90. If it drops, the task introduced a regression — fix before continuing.
+
+---
+
+### ERA-1: Create Pattern Registry Module
+
+**Status:** DONE
+**Estimated size:** ~200 lines, new file
+**Depends on:** None
+**Files to create:**
+- `regex_improve/detection/pattern_registry.py`
+
+**Description:**
+Create the central pattern registry module that defines eras, holds all compiled regex patterns per era, and provides lookup functions. Initially all 5 eras use identical "baseline" patterns (copied from the current module-level constants). Era-specific variants will be introduced in later tasks.
+
+**Instructions:**
+
+1. Create `regex_improve/detection/pattern_registry.py` with these components:
+
+2. Define the `Era` dataclass:
+   ```python
+   from dataclasses import dataclass, field
+   from typing import Optional, List, Tuple, Dict
+   import re
+   import logging
+
+   logger = logging.getLogger(__name__)
+
+   @dataclass
+   class Era:
+       """A volume range with a name."""
+       name: str          # e.g., "era1"
+       vol_start: int     # inclusive lower bound
+       vol_end: int       # inclusive upper bound
+       description: str   # e.g., "1980s baseline"
+   ```
+
+3. Define the `EraConfig` dataclass with ALL patterns currently scattered across modules. Use comments to group by source module:
+   ```python
+   @dataclass
+   class EraConfig:
+       """All regex patterns and scoring settings for a specific era.
+       Treat instances as immutable after creation."""
+       era_name: str
+
+       # -- Shared (used by preprocess.py AND boundary_fsm.py) --
+       re_division: re.Pattern
+
+       # -- Preprocessing (preprocess.py) --
+       re_page_marker: re.Pattern
+       re_volume_header: re.Pattern
+       re_philippine_reports: re.Pattern
+       re_short_title: re.Pattern
+       re_syllabus_header: re.Pattern
+
+       # -- Boundary detection (boundary_fsm.py) --
+       re_case_bracket: re.Pattern
+       re_case_bracket_no_close: re.Pattern
+
+       # -- Section extraction (section_extractor.py) --
+       re_syllabus: re.Pattern
+       re_counsel_header: re.Pattern
+       re_doc_type: re.Pattern
+       re_ponente: re.Pattern
+       re_per_curiam: re.Pattern
+       re_so_ordered: re.Pattern
+       re_separate_opinion: re.Pattern
+       re_votes_content: re.Pattern
+       re_footnote_start: re.Pattern
+       re_wherefore: re.Pattern
+       re_counsel_designation: re.Pattern
+       re_parties_end: re.Pattern
+       re_vs_line: re.Pattern
+
+       # -- Confidence scoring (confidence.py) --
+       required_labels: frozenset = field(default_factory=lambda: frozenset({
+           "start_of_case", "case_number", "date", "division", "doc_type",
+           "start_decision", "end_decision", "votes", "end_of_case"
+       }))
+       label_order: tuple = field(default_factory=lambda: (
+           "start_of_case", "case_number", "date", "division", "parties",
+           "start_syllabus", "end_syllabus", "counsel", "doc_type", "ponente",
+           "start_decision", "end_decision", "votes", "start_opinion",
+           "end_opinion", "end_of_case"
+       ))
+       parties_len_range: Tuple[int, int] = (50, 2000)
+       votes_len_range: Tuple[int, int] = (20, 500)
+
+       # -- Behavioral flags --
+       has_syllabus: bool = True   # False for era5: skip syllabus extraction entirely
+   ```
+
+4. Define the 5 default eras:
+   ```python
+   DEFAULT_ERAS: List[Era] = [
+       Era("era1", 121,  260, "1980s baseline (OCR-heavy, non-spaced DECISION)"),
+       Era("era2", 261,  500, "1990-2005 (non-spaced DECISION, varied OCR quality)"),
+       Era("era3", 501,  700, "2005-2012 (spaced D E C I S I O N transition)"),
+       Era("era4", 701,  900, "2012-2022 (modern digital, spaced DECISION)"),
+       Era("era5", 901,  999, "2022-2024 (no SYLLABUS, Unicode ligature issues)"),
+   ]
+   ```
+
+5. Create a `_build_baseline_config(era_name, **overrides)` factory function that returns an `EraConfig` populated with the **exact current patterns** from all modules. Copy every `re.compile(...)` call verbatim from the current code:
+
+   - From `preprocess.py` lines 14-27: `RE_PAGE_MARKER`, `RE_VOLUME_HEADER`, `RE_PHILIPPINE_REPORTS`, `RE_SHORT_TITLE`, `RE_DIVISION`, `RE_SYLLABUS_HEADER`
+   - From `boundary_fsm.py` lines 34-56: `RE_CASE_BRACKET`, `RE_CASE_BRACKET_NO_CLOSE` (note: `RE_DIVISION` is identical to `preprocess.py`'s — use one copy)
+   - From `section_extractor.py` lines 36-102: `RE_SYLLABUS`, `RE_COUNSEL_HEADER`, `RE_DOC_TYPE`, `RE_PONENTE`, `RE_PER_CURIAM`, `RE_SO_ORDERED`, `RE_SEPARATE_OPINION`, `RE_VOTES_CONTENT`, `RE_FOOTNOTE_START`, `RE_WHEREFORE`, `RE_COUNSEL_DESIGNATION`, `RE_PARTIES_END`, `RE_VS_LINE`
+
+   The function should apply `**overrides` using `setattr` after constructing the baseline, so eras can override individual patterns:
+   ```python
+   def _build_baseline_config(era_name: str, **overrides) -> EraConfig:
+       config = EraConfig(
+           era_name=era_name,
+           re_division=re.compile(...),   # exact current pattern
+           re_page_marker=re.compile(...),
+           # ... all 21 patterns ...
+       )
+       for key, value in overrides.items():
+           if not hasattr(config, key):
+               raise ValueError(f"Unknown EraConfig field: {key}")
+           setattr(config, key, value)
+       return config
+   ```
+
+6. Build the era config registry as a module-level dict. For now, all 5 eras use baseline patterns with **one known variant**: era5 sets `has_syllabus=False`:
+   ```python
+   _ERA_CONFIGS: Dict[str, EraConfig] = {}
+
+   def _init_registry():
+       """Build era configs. Called once at module load."""
+       for era in DEFAULT_ERAS:
+           overrides = {}
+           if era.name == "era5":
+               overrides["has_syllabus"] = False
+           _ERA_CONFIGS[era.name] = _build_baseline_config(era.name, **overrides)
+
+   _init_registry()
+   ```
+
+7. Implement the public API functions:
+
+   ```python
+   def get_era(vol_num: Optional[int]) -> Era:
+       """Find the era for a volume number. Returns era1 if vol_num is None or out of range."""
+       if vol_num is None:
+           return DEFAULT_ERAS[0]
+       for era in DEFAULT_ERAS:
+           if era.vol_start <= vol_num <= era.vol_end:
+               return era
+       logger.warning(f"Volume {vol_num} outside all era ranges, defaulting to era1")
+       return DEFAULT_ERAS[0]
+
+   def get_era_config(vol_num: Optional[int] = None) -> EraConfig:
+       """Get the EraConfig for a volume number."""
+       era = get_era(vol_num)
+       return _ERA_CONFIGS[era.name]
+
+   def get_fallback_order(vol_num: Optional[int]) -> List[str]:
+       """Get era names in outward-from-matched order for fallthrough.
+
+       Example for vol_num=600 (era3): ['era3', 'era4', 'era2', 'era5', 'era1']
+       Tries adjacent eras alternating right then left.
+       """
+       matched = get_era(vol_num)
+       matched_idx = next(i for i, e in enumerate(DEFAULT_ERAS) if e.name == matched.name)
+       order = [matched.name]
+       left, right = matched_idx - 1, matched_idx + 1
+       while left >= 0 or right < len(DEFAULT_ERAS):
+           if right < len(DEFAULT_ERAS):
+               order.append(DEFAULT_ERAS[right].name)
+               right += 1
+           if left >= 0:
+               order.append(DEFAULT_ERAS[left].name)
+               left -= 1
+       return order
+
+   def get_era_config_by_name(era_name: str) -> EraConfig:
+       """Get EraConfig by era name. Used during fallthrough."""
+       return _ERA_CONFIGS[era_name]
+   ```
+
+**Constraints:**
+- Zero external dependencies (stdlib + `re` only)
+- All 21 regex patterns must be copied **verbatim** from the current source modules — do NOT modify any pattern text. This ensures zero regression.
+- `EraConfig` fields use `re_` prefix (lowercase) to distinguish from the old `RE_` module-level constants
+- Import nothing from `preprocess.py`, `boundary_fsm.py`, or `section_extractor.py` (pattern_registry must have no circular deps — it is imported BY those modules)
+- Do not use `frozen=True` on the dataclass (re.Pattern objects cause issues with frozen dataclasses)
+
+---
+
+### ERA-2: Thread Volume Number Through Pipeline
+
+**Status:** DONE
+**Estimated size:** ~30 lines changed across 4 files
+**Depends on:** ERA-1
+**Files to modify:**
+- `regex_improve/detection/pipeline.py`
+- `regex_improve/detection/preprocess.py`
+- `regex_improve/detection/boundary_fsm.py`
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+Extract the volume number early in `process_volume()` and pass it through to all module constructors. This task only adds the parameter — no behavior change yet. Patterns continue to be used from module-level constants until ERA-3.
+
+**Instructions:**
+
+1. In `pipeline.py`, after line 91 (`volume_name = volume_path.stem`), extract the volume number:
+   ```python
+   import re as re_module  # avoid conflict with the module name
+
+   # Extract volume number from filename (e.g., "Volume_226" -> 226)
+   _vol_match = re_module.search(r'(\d+)', volume_name)
+   vol_num = int(_vol_match.group(1)) if _vol_match else None
+   logger.info(f"Volume number: {vol_num}, era: {get_era(vol_num).name}")
+   ```
+   Note: use `re` directly (it's already imported in pipeline.py). The `re_module` alias is only needed if there's a name conflict — check first. If `re` is already imported at the top of pipeline.py, just use `re.search(...)`.
+
+2. Add this import at the top of `pipeline.py`:
+   ```python
+   from .pattern_registry import get_era, get_era_config
+   ```
+
+3. Pass `vol_num` to the three constructor calls in `process_volume()`:
+   - Line ~128: `preprocessor = VolumePreprocessor(vol_num=vol_num)`
+   - Line ~137: `detector = CaseBoundaryDetector(preprocessor, vol_num=vol_num)`
+   - Line ~148: `extractor = SectionExtractor(preprocessor, vol_num=vol_num)`
+
+4. Update `VolumePreprocessor.__init__` in `preprocess.py` (currently line 33):
+   ```python
+   # Before:
+   def __init__(self):
+       self.loader: VolumeLoader = VolumeLoader()
+       self.noise_mask: list[bool] = []
+       self.volume_name: str = ""
+
+   # After:
+   def __init__(self, vol_num: Optional[int] = None):
+       self.loader: VolumeLoader = VolumeLoader()
+       self.noise_mask: list[bool] = []
+       self.volume_name: str = ""
+       self.vol_num: Optional[int] = vol_num
+   ```
+   Add `from typing import Optional` if not already imported (it is — line 4).
+
+5. Update `CaseBoundaryDetector.__init__` in `boundary_fsm.py` (currently line 87):
+   ```python
+   # Before:
+   def __init__(self, preprocessor: VolumePreprocessor):
+       self.preprocessor = preprocessor
+       self.loader = preprocessor.loader
+
+   # After:
+   def __init__(self, preprocessor: VolumePreprocessor, vol_num: Optional[int] = None):
+       self.preprocessor = preprocessor
+       self.loader = preprocessor.loader
+       self.vol_num: Optional[int] = vol_num
+   ```
+   Add `from typing import Optional` if not already imported (check line 5).
+
+6. Update `SectionExtractor.__init__` in `section_extractor.py` (currently line 116):
+   ```python
+   # Before:
+   def __init__(self, preprocessor: VolumePreprocessor):
+       self.preprocessor = preprocessor
+       self.loader = preprocessor.loader
+
+   # After:
+   def __init__(self, preprocessor: VolumePreprocessor, vol_num: Optional[int] = None):
+       self.preprocessor = preprocessor
+       self.loader = preprocessor.loader
+       self.vol_num: Optional[int] = vol_num
+   ```
+
+**Constraints:**
+- `vol_num` defaults to `None` everywhere so existing callers (tests, other scripts) continue to work without changes
+- Do NOT change any behavior yet — modules still use their module-level `RE_*` constants
+- Do NOT modify `process_batch()` — it calls `process_volume()` which handles vol_num extraction internally
+- Run the validation command to confirm zero regression
+
+---
+
+### ERA-3: Wire All Modules to Consume Patterns from Registry
+
+**Status:** DONE
+**Estimated size:** ~80 lines changed across 3 files
+**Depends on:** ERA-1, ERA-2
+**Files to modify:**
+- `regex_improve/detection/preprocess.py`
+- `regex_improve/detection/boundary_fsm.py`
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+Replace all module-level `RE_*` pattern constants with lookups from the pattern registry via `self.config`. Each module's `__init__` calls `get_era_config(self.vol_num)` and stores the result as `self.config`. All `RE_WHATEVER` references become `self.config.re_whatever`. Module-level constants are removed.
+
+**Instructions:**
+
+#### A. `preprocess.py`
+
+1. Add import at top:
+   ```python
+   from detection.pattern_registry import get_era_config
+   ```
+
+2. **Remove** all module-level regex constants (lines 13-27):
+   - `RE_PAGE_MARKER` (line 14)
+   - `RE_VOLUME_HEADER` (line 15)
+   - `RE_PHILIPPINE_REPORTS` (line 16)
+   - `RE_SHORT_TITLE` (lines 17-21)
+   - `RE_DIVISION` (lines 23-26)
+   - `RE_SYLLABUS_HEADER` (line 27)
+
+3. In `__init__`, add config initialization after `self.vol_num`:
+   ```python
+   self.config = get_era_config(vol_num)
+   ```
+
+4. In every method that uses `RE_*` patterns, replace with `self.config.re_*`:
+   - `RE_PAGE_MARKER` → `self.config.re_page_marker`
+   - `RE_VOLUME_HEADER` → `self.config.re_volume_header`
+   - `RE_PHILIPPINE_REPORTS` → `self.config.re_philippine_reports`
+   - `RE_SHORT_TITLE` → `self.config.re_short_title`
+   - `RE_DIVISION` → `self.config.re_division`
+   - `RE_SYLLABUS_HEADER` → `self.config.re_syllabus_header`
+
+   These are used in `_classify_noise()` and `is_noise()`. Search the file for each `RE_` name to find all usages.
+
+#### B. `boundary_fsm.py`
+
+1. Add import at top:
+   ```python
+   from detection.pattern_registry import get_era_config
+   ```
+
+2. **Remove** all module-level regex constants (lines 15-56):
+   - `RE_DIVISION` (lines 19-22)
+   - `RE_CASE_BRACKET` (lines 34-45)
+   - `RE_CASE_BRACKET_NO_CLOSE` (lines 49-56)
+
+3. In `__init__`, add config initialization after `self.vol_num`:
+   ```python
+   self.config = get_era_config(vol_num)
+   ```
+
+4. Replace all usages in `detect()` and helper methods:
+   - `RE_DIVISION` → `self.config.re_division`
+   - `RE_CASE_BRACKET` → `self.config.re_case_bracket`
+   - `RE_CASE_BRACKET_NO_CLOSE` → `self.config.re_case_bracket_no_close`
+
+   Search the file for each `RE_` name. They are used in the FSM state transitions within `detect()`.
+
+#### C. `section_extractor.py`
+
+1. Add import at top:
+   ```python
+   from detection.pattern_registry import get_era_config
+   ```
+
+2. **Update** the boundary_fsm import (currently line 13) to remove pattern imports:
+   ```python
+   # Before:
+   from detection.boundary_fsm import CaseBoundary, CaseNumber, RE_DIVISION, RE_CASE_BRACKET
+
+   # After:
+   from detection.boundary_fsm import CaseBoundary, CaseNumber
+   ```
+
+3. **Remove** all module-level regex constants (lines 35-102):
+   - `RE_SYLLABUS` (line 36)
+   - `RE_COUNSEL_HEADER` (line 37)
+   - `RE_DOC_TYPE` (lines 38-42)
+   - `RE_PONENTE` (lines 43-45)
+   - `RE_PER_CURIAM` (line 46)
+   - `RE_SO_ORDERED` (line 47)
+   - `RE_SEPARATE_OPINION` (lines 48-52)
+   - `RE_VOTES_CONTENT` (lines 55-62)
+   - `RE_FOOTNOTE_START` (line 64)
+   - `RE_WHEREFORE` (line 67)
+   - `RE_COUNSEL_DESIGNATION` (lines 88-92)
+   - `RE_PARTIES_END` (lines 95-99)
+   - `RE_VS_LINE` (line 102)
+
+4. In `__init__`, add config initialization after `self.vol_num`:
+   ```python
+   self.config = get_era_config(vol_num)
+   ```
+
+5. Replace ALL usages throughout the class. There are ~30+ references to find. Key locations:
+   - `RE_DIVISION.match(...)` → `self.config.re_division.match(...)` (lines ~376, 392, 671, 776, 819)
+   - `RE_CASE_BRACKET.match(...)` → `self.config.re_case_bracket.match(...)` (lines ~392, 671, 776, 819)
+   - `RE_SYLLABUS.match(...)` → `self.config.re_syllabus.match(...)`
+   - `RE_COUNSEL_HEADER.match(...)` → `self.config.re_counsel_header.match(...)`
+   - `RE_DOC_TYPE.match(...)` → `self.config.re_doc_type.match(...)`
+   - `RE_PONENTE.match(...)` → `self.config.re_ponente.match(...)`
+   - `RE_PER_CURIAM.match(...)` → `self.config.re_per_curiam.match(...)`
+   - `RE_SO_ORDERED.match(...)` → `self.config.re_so_ordered.match(...)`
+   - `RE_SEPARATE_OPINION.match(...)` → `self.config.re_separate_opinion.match(...)`
+   - `RE_VOTES_CONTENT.search(...)` → `self.config.re_votes_content.search(...)`
+   - `RE_FOOTNOTE_START.match(...)` → `self.config.re_footnote_start.match(...)`
+   - `RE_WHEREFORE.match(...)` → `self.config.re_wherefore.match(...)`
+   - `RE_COUNSEL_DESIGNATION.search(...)` → `self.config.re_counsel_designation.search(...)`
+   - `RE_PARTIES_END.search(...)` → `self.config.re_parties_end.search(...)`
+   - `RE_VS_LINE.match(...)` → `self.config.re_vs_line.match(...)`
+
+   **Use search-and-replace** within the class methods. Every `RE_` prefix should become `self.config.re_` (lowercase). Verify no orphan `RE_` references remain.
+
+6. Do NOT touch the module-level helper functions `_get_known_justices()` and `_line_has_justice_surname()` (lines 70-85) — they use the justice registry, not era patterns.
+
+**Constraints:**
+- After this task, zero `RE_` module-level constants should remain in `preprocess.py`, `boundary_fsm.py`, or `section_extractor.py`
+- The only `re.compile()` calls in the entire detection package should be in `pattern_registry.py` (and `confidence.py`'s `DATE_PATTERN` which is not era-dependent)
+- `ExtractedCase` and `Annotation` dataclasses are unchanged
+- `CaseBoundary`, `CaseNumber` dataclasses are unchanged
+- `VolumePreprocessor.load()`, `CaseBoundaryDetector.detect()`, `SectionExtractor.extract_all()` signatures are unchanged (only internal implementation changes)
+- Tests in `test_pipeline.py` may import `RE_*` constants — if so, update those imports to use `pattern_registry.get_era_config()` instead
+- Run the validation command to confirm zero regression
+
+---
+
+### ERA-4: Era-Aware Confidence Scoring
+
+**Status:** DONE
+**Estimated size:** ~40 lines changed
+**Depends on:** ERA-1
+**Files to modify:**
+- `regex_improve/detection/confidence.py`
+- `regex_improve/detection/pipeline.py`
+
+**Description:**
+Make `confidence.py` accept an `EraConfig` so that `REQUIRED_LABELS`, `LABEL_ORDER`, `PARTIES_LEN_RANGE`, and `VOTES_LEN_RANGE` are era-specific instead of module-level constants. The module-level constants become defaults used when no config is provided (backward compatibility).
+
+**Instructions:**
+
+1. In `confidence.py`, add import:
+   ```python
+   from .pattern_registry import EraConfig
+   ```
+
+2. Modify `_check_required_labels_present` (line 56) to accept an optional `required_labels` parameter:
+   ```python
+   def _check_required_labels_present(
+       annotations: List[Dict],
+       required_labels: Optional[frozenset] = None
+   ) -> Tuple[float, List[str]]:
+       required = required_labels if required_labels is not None else REQUIRED_LABELS
+       found_labels = {ann.get("label") for ann in annotations}
+       found_required = found_labels.intersection(required)
+       score = len(found_required) / len(required) if required else 0.0
+       # ... rest unchanged, using `required` instead of `REQUIRED_LABELS` ...
+   ```
+
+3. Modify `_check_parties_length` (line 75) to accept length range:
+   ```python
+   def _check_parties_length(
+       annotations: List[Dict],
+       len_range: Optional[Tuple[int, int]] = None
+   ) -> Tuple[float, List[str]]:
+       min_len, max_len = len_range if len_range else PARTIES_LEN_RANGE
+       # ... use min_len, max_len instead of PARTIES_LEN_RANGE ...
+   ```
+
+4. Modify `_check_votes_length` similarly to accept `len_range`.
+
+5. Modify `_check_ordering_correct` to accept a `label_order` parameter:
+   ```python
+   def _check_ordering_correct(
+       annotations: List[Dict],
+       label_order: Optional[tuple] = None
+   ) -> Tuple[float, List[str]]:
+       order = list(label_order) if label_order else LABEL_ORDER
+       # ... use `order` instead of `LABEL_ORDER` ...
+   ```
+
+6. Modify `score_case` (line ~276) to accept an optional `EraConfig`:
+   ```python
+   def score_case(
+       annotations: List[Dict],
+       known_justices: Optional[List[str]] = None,
+       era_config: Optional[EraConfig] = None
+   ) -> ConfidenceResult:
+       # Extract era-specific settings (fall back to module-level defaults)
+       req_labels = era_config.required_labels if era_config else None
+       p_range = era_config.parties_len_range if era_config else None
+       v_range = era_config.votes_len_range if era_config else None
+       l_order = era_config.label_order if era_config else None
+
+       # Pass to individual checks
+       s1, f1 = _check_required_labels_present(annotations, required_labels=req_labels)
+       s2, f2 = _check_parties_length(annotations, len_range=p_range)
+       s3, f3 = _check_votes_length(annotations, len_range=v_range)
+       # ... s4 (ponente) unchanged ...
+       s5, f5 = _check_ordering_correct(annotations, label_order=l_order)
+       # ... s6, s7 unchanged ...
+   ```
+
+7. Modify `score_all_cases` (line ~321) to accept and forward `era_config`:
+   ```python
+   def score_all_cases(
+       cases: List[Dict],
+       known_justices: Optional[List[str]] = None,
+       threshold: float = 0.7,
+       era_config: Optional[EraConfig] = None
+   ) -> Tuple[List[Dict], List[Dict]]:
+       # ... pass era_config to score_case(...) ...
+   ```
+
+8. In `pipeline.py`, update the `score_all_cases` call (line ~262) to pass the era config:
+   ```python
+   era_config = get_era_config(vol_num)
+   high_confidence, low_confidence = score_all_cases(
+       case_dicts,
+       KNOWN_JUSTICES,
+       threshold=confidence_threshold,
+       era_config=era_config
+   )
+   ```
+   Also update the `score_case` call in the LLM fallback section (line ~296):
+   ```python
+   confidence_result = score_case(annotations, KNOWN_JUSTICES, era_config=era_config)
+   ```
+
+**Constraints:**
+- Keep the module-level `REQUIRED_LABELS`, `LABEL_ORDER`, `PARTIES_LEN_RANGE`, `VOTES_LEN_RANGE` constants as defaults — they serve as fallback when `era_config=None`
+- `DATE_PATTERN` is NOT era-specific (date format is consistent across all eras) — leave it as a module-level constant
+- All existing callers that don't pass `era_config` must continue to work identically (backward compat)
+- Run the validation command to confirm zero regression
+
+---
+
+### ERA-5: Era Fallthrough in Pipeline
+
+**Status:** DONE
+**Estimated size:** ~80 lines added/changed
+**Depends on:** ERA-1, ERA-2, ERA-3, ERA-4
+**Files to modify:**
+- `regex_improve/detection/pipeline.py`
+- `regex_improve/detection/__main__.py`
+
+**Description:**
+After the initial extraction with the matched era's patterns, compute the mean confidence score. If it falls below a fallthrough threshold (default 0.65), retry the extraction (boundary detection + section extraction + confidence scoring) with adjacent era patterns. Select the era that produces the highest mean confidence. LLM fallback only runs AFTER the best era is selected.
+
+**Instructions:**
+
+1. Add a `--fallthrough-threshold` argument to `__main__.py`'s argument parser (after the `--threshold` argument):
+   ```python
+   parser.add_argument(
+       "--fallthrough-threshold", type=float, default=0.65,
+       help="Mean confidence below this triggers era fallthrough (default: 0.65)"
+   )
+   ```
+   Pass it to `process_volume()` and `process_batch()` calls.
+
+2. Add `fallthrough_threshold` parameter to `process_volume()` signature in `pipeline.py`:
+   ```python
+   def process_volume(
+       volume_path: Path,
+       output_path: Optional[Path] = None,
+       llm_budget: float = 5.0,
+       confidence_threshold: float = 0.7,
+       skip_llm: bool = False,
+       budget: Optional[BudgetTracker] = None,
+       force: bool = False,
+       fallthrough_threshold: float = 0.65
+   ) -> PipelineResult:
+   ```
+   Also add it to `process_batch()` and forward it to `process_volume()`.
+
+3. Add these imports to `pipeline.py`:
+   ```python
+   from .pattern_registry import get_era, get_era_config, get_fallback_order, get_era_config_by_name
+   ```
+
+4. After Step 5 (confidence scoring, line ~268), **before** Step 6 (LLM fallback), insert the fallthrough logic. Extract the current Steps 2-5 into a helper function to avoid deep nesting:
+
+   ```python
+   def _run_extraction(preprocessor, vol_num, era_config, confidence_threshold, volume_text):
+       """Run boundary detection + section extraction + OCR correction + confidence scoring.
+
+       Returns: (all_cases, high_confidence, low_confidence, boundaries, all_corrections, era_name)
+       """
+       detector = CaseBoundaryDetector(preprocessor, vol_num=vol_num)
+       detector.config = era_config  # Override config for this era attempt
+       boundaries = detector.detect()
+
+       extractor = SectionExtractor(preprocessor, vol_num=vol_num)
+       extractor.config = era_config  # Override config for this era attempt
+       extracted_cases = extractor.extract_all(boundaries)
+
+       # OCR correction
+       corrected_cases = []
+       all_corrections = []
+       for case in extracted_cases:
+           annotation_dicts = [...]  # same conversion as current Step 4
+           corrected_annotations, corrections = correct_annotations(annotation_dicts)
+           all_corrections.extend(corrections)
+           corrected_cases.append({
+               "case_id": case.case_id,
+               "annotations": corrected_annotations,
+               "confidence": case.confidence,
+               "notes": case.notes
+           })
+
+       # Confidence scoring
+       high_confidence, low_confidence = score_all_cases(
+           corrected_cases, KNOWN_JUSTICES,
+           threshold=confidence_threshold,
+           era_config=era_config
+       )
+
+       return corrected_cases, high_confidence, low_confidence, boundaries, all_corrections
+   ```
+
+5. In `process_volume()`, replace the current Steps 2-5 with a call to `_run_extraction`, then add the fallthrough loop:
+
+   ```python
+   # Initial extraction with matched era
+   era_config = get_era_config(vol_num)
+   corrected_cases, high_confidence, low_confidence, boundaries, all_corrections = \
+       _run_extraction(preprocessor, vol_num, era_config, confidence_threshold, volume_text)
+
+   # Compute mean confidence
+   all_initial = high_confidence + low_confidence
+   mean_conf = (
+       sum(c.get("confidence_score", 0) for c in all_initial) / len(all_initial)
+       if all_initial else 0.0
+   )
+   logger.info(f"Initial era {era_config.era_name}: mean confidence {mean_conf:.3f}")
+
+   # Era fallthrough: if mean confidence is below threshold, try adjacent eras
+   if mean_conf < fallthrough_threshold and len(all_initial) > 0:
+       logger.info(f"Mean confidence {mean_conf:.3f} < {fallthrough_threshold}, trying fallthrough...")
+       best_era_name = era_config.era_name
+       best_mean_conf = mean_conf
+       best_result = (corrected_cases, high_confidence, low_confidence, boundaries, all_corrections)
+
+       fallback_eras = get_fallback_order(vol_num)[1:]  # skip the already-tried matched era
+       for fb_era_name in fallback_eras:
+           fb_config = get_era_config_by_name(fb_era_name)
+           logger.info(f"Trying fallback era: {fb_era_name}")
+
+           fb_cases, fb_high, fb_low, fb_bounds, fb_corr = \
+               _run_extraction(preprocessor, vol_num, fb_config, confidence_threshold, volume_text)
+
+           fb_all = fb_high + fb_low
+           fb_mean = (
+               sum(c.get("confidence_score", 0) for c in fb_all) / len(fb_all)
+               if fb_all else 0.0
+           )
+           logger.info(f"  {fb_era_name}: mean confidence {fb_mean:.3f}")
+
+           if fb_mean > best_mean_conf:
+               best_mean_conf = fb_mean
+               best_era_name = fb_era_name
+               best_result = (fb_cases, fb_high, fb_low, fb_bounds, fb_corr)
+
+           # Stop early if we've found a good era
+           if best_mean_conf >= fallthrough_threshold:
+               break
+
+       if best_era_name != era_config.era_name:
+           logger.info(f"Era fallthrough: switched from {era_config.era_name} to {best_era_name}")
+           era_config = get_era_config_by_name(best_era_name)
+
+       corrected_cases, high_confidence, low_confidence, boundaries, all_corrections = best_result
+   ```
+
+6. Add the selected era name to the output JSON metadata:
+   ```python
+   "metadata": {
+       "pipeline_version": PIPELINE_VERSION,
+       "era": era_config.era_name,       # <-- new
+       "era_fallthrough": best_era_name != get_era(vol_num).name if 'best_era_name' in dir() else False,
+       # ... rest unchanged ...
+   }
+   ```
+   Keep it simple — just add `"era": era_config.era_name` to the metadata dict.
+
+7. In the summary log and print output, include the era:
+   ```python
+   lines.append(f"Era used:              {era_config.era_name}")
+   ```
+
+**Constraints:**
+- Fallthrough is regex-only — no LLM calls during fallthrough. LLM fallback runs AFTER the best era is selected.
+- `_run_extraction` must NOT modify the preprocessor (it's shared across all fallthrough attempts — the text and noise mask don't change per era)
+- If `vol_num` is None, skip fallthrough entirely (can't determine era)
+- `_run_extraction` is a module-level helper function, NOT a method on any class
+- The merge with previous predictions (Step 4b) should happen AFTER era fallthrough, not inside `_run_extraction`
+- The matched_lines set for diagnostics should be built from the FINAL (best) era's results
+- Default `fallthrough_threshold=0.65` — lower than the LLM threshold (0.7) because fallthrough is "the patterns are fundamentally wrong for this era"
+- Run the validation command to confirm zero regression
+
+---
+
+### ERA-6: Syllabus Skip for Era 5
+
+**Status:** DONE
+**Estimated size:** ~20 lines changed
+**Depends on:** ERA-3
+**Files to modify:**
+- `regex_improve/detection/section_extractor.py`
+
+**Description:**
+When `self.config.has_syllabus` is `False` (era5), the section extractor should skip the entire syllabus detection block. This prevents false positives where random text matches `RE_SYLLABUS` in modern volumes that never have a SYLLABUS section.
+
+**Instructions:**
+
+1. In `SectionExtractor._extract_case()`, find the syllabus detection block. It will contain logic that searches for `self.config.re_syllabus.match(...)` and sets `start_syllabus` / `end_syllabus` annotations.
+
+2. Wrap the entire syllabus detection block in a guard:
+   ```python
+   if self.config.has_syllabus:
+       # existing syllabus detection logic (start_syllabus, end_syllabus)
+       ...
+   ```
+
+3. If `has_syllabus` is False, do NOT create `start_syllabus` or `end_syllabus` annotations at all. The case will simply have no syllabus annotations, which is correct for era5 volumes.
+
+**Constraints:**
+- Only touch the syllabus detection block — all other label extraction is unchanged
+- The guard checks `self.config.has_syllabus`, not `self.vol_num` directly (future eras may also lack syllabus)
+- Run the validation command against Vol 226 (which HAS syllabus) to confirm no regression
+
+---
+
+### ERA-7: Validate Against Both Ground Truths
+
+**Status:** DONE
+**Estimated size:** Test-only task, no production code changes
+**Depends on:** ERA-1 through ERA-6
+**Files to modify:**
+- `regex_improve/detection/tests/test_pipeline.py`
+
+**Description:**
+After all ERA tasks are complete, validate the full pipeline against both available ground truths. Add a test for Volume 421 and ensure Volume 226 has not regressed. This task is validation only — if tests fail, go back and fix the relevant ERA task.
+
+**Instructions:**
+
+1. Run both scoring commands and record results:
+   ```bash
+   cd regex_improve
+
+   # Era 1 regression check (must be F1 >= 0.90)
+   python -m detection ../downloads/Volume_226.txt \
+       --score annotation_exports/ground_truth_20260309_144413.json \
+       --skip-llm --force
+
+   # Era 2 baseline (record F1, no minimum yet)
+   python -m detection ../downloads/Volume_421.txt \
+       --score annotation_exports/ground_truth_20260312_162916.json \
+       --skip-llm --force
+   ```
+
+2. In `test_pipeline.py`, add a test for Volume 421 if the sample file exists:
+   ```python
+   def test_volume_421_era2(self):
+       """Test pipeline on Volume 421 (era2) if sample is available."""
+       vol_path = SAMPLES_DIR / "Volume_421.txt"
+       if not vol_path.exists():
+           self.skipTest("Volume_421.txt not in samples/")
+
+       result = process_volume(
+           volume_path=vol_path,
+           skip_llm=True,
+           force=True
+       )
+       # Should detect cases (exact count TBD from ground truth)
+       self.assertGreater(len(result.cases), 0)
+       # Era should be era2
+       # Mean confidence should be reasonable
+   ```
+
+3. Add a test that verifies era selection:
+   ```python
+   def test_era_selection(self):
+       """Test that pattern_registry selects correct era for known volumes."""
+       from detection.pattern_registry import get_era
+       self.assertEqual(get_era(226).name, "era1")
+       self.assertEqual(get_era(421).name, "era2")
+       self.assertEqual(get_era(676).name, "era3")
+       self.assertEqual(get_era(813).name, "era4")
+       self.assertEqual(get_era(960).name, "era5")
+       self.assertEqual(get_era(None).name, "era1")  # default
+       self.assertEqual(get_era(9999).name, "era1")   # out of range
+   ```
+
+4. Add a test that verifies fallback order:
+   ```python
+   def test_fallback_order(self):
+       """Test that fallback order expands outward from matched era."""
+       from detection.pattern_registry import get_fallback_order
+       # era3 (vol 600): should try era3, era4, era2, era5, era1
+       order = get_fallback_order(600)
+       self.assertEqual(order[0], "era3")  # matched first
+       self.assertEqual(len(order), 5)     # all eras included
+   ```
+
+5. Record the Vol 421 F1 score in this task's status when complete — it becomes the era2 baseline to protect against future regressions.
+
+**Constraints:**
+- Do NOT modify any production code in this task
+- If Vol 226 F1 drops below 0.90, this task FAILS — go back and fix the regression
+- Use `--force` flag in all test runs to bypass manifest cache
+- Skip tests gracefully if sample files are missing (`self.skipTest(...)`)
+
+---
+
+## Updated File Tree (after ERA tasks)
+
+```
+regex_improve/
+├── detection/
+│   ├── __init__.py
+│   ├── __main__.py              # ERA-5: --fallthrough-threshold arg
+│   ├── pattern_registry.py      # ERA-1: NEW — era definitions + all patterns
+│   ├── preprocess.py            # ERA-2/3: vol_num param, uses self.config
+│   ├── boundary_fsm.py          # ERA-2/3: vol_num param, uses self.config
+│   ├── section_extractor.py     # ERA-2/3/6: vol_num param, uses self.config, syllabus guard
+│   ├── scorer.py
+│   ├── ocr_correction.py
+│   ├── confidence.py            # ERA-4: era_config param for scoring
+│   ├── llm_fallback.py
+│   ├── pipeline.py              # ERA-2/5: vol_num extraction, era fallthrough
+│   ├── manifest.py
+│   ├── diagnostics.py
+│   ├── justices.json
+│   ├── justice_registry.py
+│   ├── harvest_justices.py
+│   ├── patch_blank_pages.py
+│   ├── Instructions.txt
+│   └── tests/
+│       ├── __init__.py
+│       └── test_pipeline.py     # ERA-7: era selection + Vol 421 tests
+├── gui/
+│   └── ...
+├── annotation_exports/
+│   ├── ground_truth_20260309_144413.json   # Vol 226 (era1)
+│   └── ground_truth_20260312_162916.json   # Vol 421 (era2)
+├── annotate_gui.py
+├── improved_regex.py
+└── samples/
+    └── Volume_*.txt
+```

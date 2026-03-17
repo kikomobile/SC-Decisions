@@ -253,38 +253,61 @@ def load_json_file(filepath: str) -> Dict[str, Any]:
         sys.exit(1)
 
 
-def parse_annotations(json_data: Dict[str, Any]) -> List[Case]:
-    """Parse annotations from JSON data into Case objects."""
+def _get_volume_names(json_data: Dict[str, Any]) -> List[str]:
+    """Extract volume names from JSON data (works for both dict and list formats)."""
+    volumes_data = json_data.get("volumes", {})
+    if isinstance(volumes_data, dict):
+        return list(volumes_data.keys())
+    else:
+        return [v.get("volume_name", "") for v in volumes_data]
+
+
+def parse_annotations(json_data: Dict[str, Any], volume_filter: Optional[str] = None) -> List[Case]:
+    """Parse annotations from JSON data into Case objects.
+
+    Args:
+        json_data: Loaded JSON data in format_version=2 schema.
+        volume_filter: If set, only include cases from volumes whose name
+                       contains this string (e.g. "Volume_421" matches
+                       "Volume_421" and "Volume_421.txt").  None = all volumes.
+    """
     cases = []
-    
+
     # Check format version
     format_version = json_data.get("format_version", 1)
     if format_version != 2:
         print(f"Warning: Expected format_version=2, got {format_version}", file=sys.stderr)
-    
+
     # Get volumes - can be either list or dict
     volumes_data = json_data.get("volumes", {})
-    
+
     if isinstance(volumes_data, dict):
         # volumes is a dict mapping volume names to volume data
-        volumes_list = volumes_data.values()
+        volumes_iter = volumes_data.items()  # (name, data) pairs
     else:
-        # volumes is a list
-        volumes_list = volumes_data
-    
-    for volume in volumes_list:
+        # volumes is a list — synthesize name from volume_name field
+        volumes_iter = [(v.get("volume_name", ""), v) for v in volumes_data]
+
+    for vol_name, volume in volumes_iter:
+        # Apply volume filter: skip volumes that don't match
+        if volume_filter is not None:
+            # Match if filter is a substring of vol_name or vice versa
+            # e.g. "Volume_421" matches "Volume_421.txt" and "Volume_421"
+            if volume_filter not in vol_name and vol_name not in volume_filter:
+                continue
+
         volume_cases = volume.get("cases", [])
         for case_data in volume_cases:
             case_id = case_data.get("case_id", "")
             annotations = []
-            
+
             for ann_data in case_data.get("annotations", []):
                 label = ann_data.get("label", "")
                 text = ann_data.get("text", "")
                 start_char = ann_data.get("start_char", 0)
                 end_char = ann_data.get("end_char", 0)
                 group = ann_data.get("group")
-                
+
                 annotation = Annotation(
                     label=label,
                     text=text,
@@ -293,10 +316,10 @@ def parse_annotations(json_data: Dict[str, Any]) -> List[Case]:
                     group=group
                 )
                 annotations.append(annotation)
-            
+
             case = Case(case_id=case_id, annotations=annotations)
             cases.append(case)
-    
+
     return cases
 
 
@@ -380,8 +403,18 @@ def score_volume(
     # Load data
     gt_data = load_json_file(ground_truth_path)
     pred_data = load_json_file(predicted_path)
-    
-    gt_cases = parse_annotations(gt_data)
+
+    # Extract volume name from predictions to filter ground truth.
+    # Without this, a multi-volume GT file causes cross-volume mismatches.
+    pred_volume_names = _get_volume_names(pred_data)
+    volume_filter = pred_volume_names[0] if len(pred_volume_names) == 1 else None
+    if volume_filter:
+        gt_vol_names = _get_volume_names(gt_data)
+        if len(gt_vol_names) > 1:
+            print(f"Filtering ground truth to volume: {volume_filter} "
+                  f"(GT contains {len(gt_vol_names)} volumes)", file=sys.stderr)
+
+    gt_cases = parse_annotations(gt_data, volume_filter=volume_filter)
     pred_cases = parse_annotations(pred_data)
     
     # Match cases

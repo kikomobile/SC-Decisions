@@ -8,6 +8,7 @@ import json
 import logging
 import sys
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
@@ -35,6 +36,7 @@ from .manifest import (
     should_reprocess, load_previous_predictions, merge_annotations,
     _get_source_mtime, PIPELINE_VERSION
 )
+from .pattern_registry import get_era, get_era_config
 
 # Setup logging
 logging.basicConfig(
@@ -123,9 +125,15 @@ def process_volume(
         else:
             logger.info(f"Reprocessing {volume_name}: {reason}")
     
+    # Extract volume number from filename (e.g., "Volume_226" -> 226)
+    vol_match = re.search(r'(\d+)', volume_name)
+    vol_num = int(vol_match.group(1)) if vol_match else None
+    era = get_era(vol_num)
+    logger.info(f"Volume number: {vol_num}, era: {era.name}")
+    
     # Step 1: Preprocess
     logger.info("Step 1: Preprocessing volume...")
-    preprocessor = VolumePreprocessor()
+    preprocessor = VolumePreprocessor(vol_num=vol_num)
     try:
         volume_text = preprocessor.load(volume_path)
     except Exception as e:
@@ -134,7 +142,7 @@ def process_volume(
     
     # Step 2: Detect case boundaries
     logger.info("Step 2: Detecting case boundaries...")
-    detector = CaseBoundaryDetector(preprocessor)
+    detector = CaseBoundaryDetector(preprocessor, vol_num=vol_num)
     try:
         boundaries = detector.detect()
     except Exception as e:
@@ -145,7 +153,7 @@ def process_volume(
     
     # Step 3: Extract sections
     logger.info("Step 3: Extracting sections...")
-    extractor = SectionExtractor(preprocessor)
+    extractor = SectionExtractor(preprocessor, vol_num=vol_num)
     try:
         extracted_cases = extractor.extract_all(boundaries)
     except Exception as e:

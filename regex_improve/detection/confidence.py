@@ -21,22 +21,7 @@ except ImportError:
     KNOWN_JUSTICES = []
     print("Warning: Could not import KNOWN_JUSTICES from ocr_correction. Using empty list.")
 
-
-# Constants
-REQUIRED_LABELS = {
-    "start_of_case", "case_number", "date", "division", "doc_type",
-    "start_decision", "end_decision", "votes", "end_of_case"
-}
-
-LABEL_ORDER = [
-    "start_of_case", "case_number", "date", "division", "parties",
-    "start_syllabus", "end_syllabus", "counsel", "doc_type", "ponente",
-    "start_decision", "end_decision", "votes", "start_opinion",
-    "end_opinion", "end_of_case"
-]
-
-PARTIES_LEN_RANGE = (50, 2000)  # characters
-VOTES_LEN_RANGE = (20, 500)     # characters
+from .pattern_registry import get_era_config
 
 # Date pattern for validation (lenient)
 DATE_PATTERN = re.compile(
@@ -53,30 +38,30 @@ class ConfidenceResult:
     flags: List[str]           # human-readable issue descriptions
 
 
-def _check_required_labels_present(annotations: List[Dict]) -> Tuple[float, List[str]]:
+def _check_required_labels_present(annotations: List[Dict], config) -> Tuple[float, List[str]]:
     """Check 1: required labels present.
     
     Weight: 0.3
     Score: count of found required labels / total required labels.
     """
     found_labels = {ann.get("label") for ann in annotations}
-    found_required = found_labels.intersection(REQUIRED_LABELS)
+    found_required = found_labels.intersection(config.required_labels)
     
-    score = len(found_required) / len(REQUIRED_LABELS) if REQUIRED_LABELS else 0.0
+    score = len(found_required) / len(config.required_labels) if config.required_labels else 0.0
     
     flags = []
-    missing = REQUIRED_LABELS - found_required
+    missing = config.required_labels - found_required
     if missing:
         flags.append(f"Missing required labels: {', '.join(sorted(missing))}")
     
     return score, flags
 
 
-def _check_parties_length(annotations: List[Dict]) -> Tuple[float, List[str]]:
+def _check_parties_length(annotations: List[Dict], config) -> Tuple[float, List[str]]:
     """Check 2: parties length within reasonable range.
     
     Weight: 0.1
-    Score: 1.0 if any parties annotation has length in (50, 2000), else 0.0.
+    Score: 1.0 if any parties annotation has length in config.parties_len_range, else 0.0.
     """
     parties_anns = [ann for ann in annotations if ann.get("label") == "parties"]
     
@@ -86,19 +71,19 @@ def _check_parties_length(annotations: List[Dict]) -> Tuple[float, List[str]]:
     for ann in parties_anns:
         text = ann.get("text", "")
         length = len(text)
-        if PARTIES_LEN_RANGE[0] <= length <= PARTIES_LEN_RANGE[1]:
+        if config.parties_len_range[0] <= length <= config.parties_len_range[1]:
             return 1.0, []
     
     # If we get here, no parties annotation is within range
     length = len(parties_anns[0].get("text", ""))
-    return 0.0, [f"Parties length {length} outside range {PARTIES_LEN_RANGE}"]
+    return 0.0, [f"Parties length {length} outside range {config.parties_len_range}"]
 
 
-def _check_votes_length(annotations: List[Dict]) -> Tuple[float, List[str]]:
+def _check_votes_length(annotations: List[Dict], config) -> Tuple[float, List[str]]:
     """Check 3: votes length within reasonable range.
     
     Weight: 0.1
-    Score: 1.0 if any votes annotation has length in (20, 500), else 0.0.
+    Score: 1.0 if any votes annotation has length in config.votes_len_range, else 0.0.
     """
     votes_anns = [ann for ann in annotations if ann.get("label") == "votes"]
     
@@ -108,12 +93,12 @@ def _check_votes_length(annotations: List[Dict]) -> Tuple[float, List[str]]:
     for ann in votes_anns:
         text = ann.get("text", "")
         length = len(text)
-        if VOTES_LEN_RANGE[0] <= length <= VOTES_LEN_RANGE[1]:
+        if config.votes_len_range[0] <= length <= config.votes_len_range[1]:
             return 1.0, []
     
     # If we get here, no votes annotation is within range
     length = len(votes_anns[0].get("text", ""))
-    return 0.0, [f"Votes length {length} outside range {VOTES_LEN_RANGE}"]
+    return 0.0, [f"Votes length {length} outside range {config.votes_len_range}"]
 
 
 def _check_ponente_known(annotations: List[Dict], known_justices: List[str]) -> Tuple[float, List[str]]:
@@ -152,11 +137,11 @@ def _check_ponente_known(annotations: List[Dict], known_justices: List[str]) -> 
     return 0.0, [f"Ponente '{ponente_text}' not recognized"]
 
 
-def _check_ordering_correct(annotations: List[Dict]) -> Tuple[float, List[str]]:
+def _check_ordering_correct(annotations: List[Dict], config) -> Tuple[float, List[str]]:
     """Check 5: annotations appear in correct order.
     
     Weight: 0.2
-    Score: 1.0 if all present labels appear in LABEL_ORDER by start_char.
+    Score: 1.0 if all present labels appear in config.label_order by start_char.
            0.0 if any is out of order.
     """
     if not annotations:
@@ -175,11 +160,11 @@ def _check_ordering_correct(annotations: List[Dict]) -> Tuple[float, List[str]]:
     # Sort by start_char
     anns_with_pos.sort(key=lambda x: x[0])
     
-    # Check if labels appear in LABEL_ORDER
-    # Build a map of label to its position in LABEL_ORDER
-    label_to_order = {label: i for i, label in enumerate(LABEL_ORDER)}
+    # Check if labels appear in config.label_order
+    # Build a map of label to its position in config.label_order
+    label_to_order = {label: i for i, label in enumerate(config.label_order)}
     
-    # Get (start_char, order_index, label_name) for labels that are in LABEL_ORDER
+    # Get (start_char, order_index, label_name) for labels that are in config.label_order
     ordered_triples = []
     for start_char, label in anns_with_pos:
         if label in label_to_order:
@@ -273,18 +258,23 @@ def _check_date_valid(annotations: List[Dict]) -> Tuple[float, List[str]]:
     return 0.0, [f"Date '{date_text}' doesn't match Month DD, YYYY pattern"]
 
 
-def score_case(annotations: List[Dict], known_justices: Optional[List[str]] = None) -> ConfidenceResult:
+def score_case(annotations: List[Dict], known_justices: Optional[List[str]] = None, 
+               vol_num: Optional[int] = None) -> ConfidenceResult:
     """Score a case's quality based on 7 weighted checks.
     
     Args:
         annotations: List of annotation dicts
         known_justices: Optional list of known justice names for fuzzy matching
+        vol_num: Volume number for era-aware scoring (None for default era1)
         
     Returns:
         ConfidenceResult with score, individual check scores, and flags
     """
     if known_justices is None:
         known_justices = KNOWN_JUSTICES
+    
+    # Get era config for this volume
+    config = get_era_config(vol_num)
     
     # Define checks with their weights
     checks = [
@@ -304,6 +294,8 @@ def score_case(annotations: List[Dict], known_justices: Optional[List[str]] = No
     for check_func, weight, name in checks:
         if name == "ponente_known":
             score, flags = check_func(annotations, known_justices)
+        elif name in ["required_labels_present", "parties_length", "votes_length", "ordering_correct"]:
+            score, flags = check_func(annotations, config)
         else:
             score, flags = check_func(annotations)
         
@@ -319,13 +311,14 @@ def score_case(annotations: List[Dict], known_justices: Optional[List[str]] = No
 
 
 def score_all_cases(cases: List[Dict], known_justices: Optional[List[str]] = None,
-                   threshold: float = 0.7) -> Tuple[List[Dict], List[Dict]]:
+                   threshold: float = 0.7, vol_num: Optional[int] = None) -> Tuple[List[Dict], List[Dict]]:
     """Split cases into high-confidence and low-confidence lists based on threshold.
     
     Args:
         cases: List of case dicts (each must have "annotations" key)
         known_justices: Optional list of known justice names
         threshold: Confidence threshold (default 0.7)
+        vol_num: Volume number for era-aware scoring (None for default era1)
         
     Returns:
         Tuple of (high_confidence_cases, low_confidence_cases)
@@ -335,7 +328,7 @@ def score_all_cases(cases: List[Dict], known_justices: Optional[List[str]] = Non
     
     for case in cases:
         annotations = case.get("annotations", [])
-        result = score_case(annotations, known_justices)
+        result = score_case(annotations, known_justices, vol_num)
         
         # Add confidence score to case
         case_with_score = case.copy()
@@ -423,5 +416,22 @@ if __name__ == "__main__":
     print(f"  High confidence: {len(high)}, Low confidence: {len(low)}")
     assert len(high) >= 1, "Good ground truth case should be high confidence"
     assert len(low) >= 1, "Broken case should be low confidence"
+
+    # Test 4: Era-aware scoring
+    print("\nTest 4: Era-aware scoring...")
+    # Test with different volume numbers
+    test_volumes = [226, 421, 600, 813, 960]  # era1, era2, era3, era4, era5
+    for vol in test_volumes:
+        config = get_era_config(vol)
+        print(f"  Volume {vol} (era: {config.era_name}):")
+        print(f"    has_syllabus: {config.has_syllabus}")
+        print(f"    required_labels: {len(config.required_labels)} labels")
+        print(f"    parties_len_range: {config.parties_len_range}")
+        print(f"    votes_len_range: {config.votes_len_range}")
+    
+    # Test era5 special handling (no syllabus)
+    era5_config = get_era_config(960)
+    print(f"  Era5 (volume 960) has_syllabus: {era5_config.has_syllabus}")
+    assert era5_config.has_syllabus == False, "Era5 should have has_syllabus=False"
 
     print("\nAll tests passed!")

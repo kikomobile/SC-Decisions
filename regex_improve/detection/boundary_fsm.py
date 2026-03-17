@@ -10,50 +10,7 @@ if str(_REGEX_IMPROVE_DIR) not in sys.path:
     sys.path.insert(0, str(_REGEX_IMPROVE_DIR))
 
 from detection.preprocess import VolumePreprocessor
-
-
-# Module-level regex constants
-# More flexible division regex to handle OCR errors
-# Allow: EN BANC, ENBANC, EN BAN C, etc.
-# Allow: FIRST DIVISION, FIRST DIVISLON, FIRST DIVISIION, etc.
-RE_DIVISION = re.compile(
-    r'^(EN\s*BAN\s*C|(?:FIRST|SECOND|THIRD)\s+DIVIS[ILO]*[ILO]+N)\s*$',
-    re.IGNORECASE
-)
-
-# RE_CASE_BRACKET must match all variants listed in TASKS.md
-# Pattern: opening bracket [({, then case type prefix, then case number, 
-# then separator, then date, then closing bracket ])}
-# Handle OCR errors: comma for period in "No," and weird bracket patterns
-# Handle nested brackets like {Adm. Matter Nos. ...]. May 30, 1986]
-# Use greedy date match to capture everything up to the last closing bracket
-# Allow trailing characters after closing bracket (OCR errors like underscore)
-# FIX-2: Make opening bracket optional (allow [, (, {, or OCR-corrupted 1, or missing entirely)
-# Also make closing bracket more flexible: allow ], ), }, |, ., or even missing
-# Handle nested/multiple opening brackets like ([ or [I (OCR errors)
-RE_CASE_BRACKET = re.compile(
-    r'^[\[\(\{1I]*(?:[\[\(\{1I])?'  # Opening bracket(s) (optional, tolerates OCR errors)
-    r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|'
-    r'A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
-    r'Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
-    r'\s*([\w\-/&\s\.]+?)'  # case number (non-greedy)
-    r'[\.\s,]+'             # separator between case number and date
-    r'(.+)'                 # date text (greedy — captures everything up to closing bracket)
-    r'[\]\)\}]'             # Closing bracket (REQUIRED: ], ), or })
-    r'.*$',                 # Allow trailing chars after closing bracket (OCR errors)
-    re.IGNORECASE
-)
-
-# FIX-2: Fallback pattern for lines where BOTH brackets are corrupted/missing
-# but the line clearly contains a G.R. number and date with month name
-RE_CASE_BRACKET_NO_CLOSE = re.compile(
-    r'^[\[\(\{1]?'
-    r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
-    r'\s*([\w\-/&\s\.]+?)'
-    r'[\.\s,]+'
-    r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})',
-    re.IGNORECASE
-)
+from .pattern_registry import get_era_config, get_fallback_order, get_era_config_by_name
 
 
 @dataclass
@@ -84,10 +41,39 @@ class CaseBoundaryDetector:
     EXPECTING_BRACKET = "EXPECTING_BRACKET"
     FOUND_BRACKET = "FOUND_BRACKET"
     
-    def __init__(self, preprocessor: VolumePreprocessor):
+    def __init__(self, preprocessor: VolumePreprocessor, vol_num: Optional[int] = None):
         self.preprocessor = preprocessor
         self.loader = preprocessor.loader
+        self.vol_num: Optional[int] = vol_num
+        self.config = get_era_config(vol_num)
+        # Get fallback order for era fallthrough
+        self.fallback_order = get_fallback_order(vol_num)
+        self.fallback_configs = {era_name: get_era_config_by_name(era_name) 
+                                 for era_name in self.fallback_order}
         
+    def _match_division_with_fallthrough(self, line_text: str):
+        """Try to match division pattern with era fallthrough."""
+        for era_name in self.fallback_order:
+            config = self.fallback_configs[era_name]
+            match = config.re_division.match(line_text)
+            if match:
+                return match, era_name
+        return None, None
+    
+    def _match_bracket_with_fallthrough(self, line_text: str):
+        """Try to match bracket pattern with era fallthrough."""
+        for era_name in self.fallback_order:
+            config = self.fallback_configs[era_name]
+            # Try primary bracket pattern
+            match = config.re_case_bracket.match(line_text)
+            if match:
+                return match, era_name, "primary"
+            # Try fallback bracket pattern (no close)
+            match = config.re_case_bracket_no_close.match(line_text)
+            if match:
+                return match, era_name, "fallback"
+        return None, None, None
+    
     def detect(self) -> list[CaseBoundary]:
         """Detect all case boundaries in the volume."""
         boundaries = []
@@ -107,8 +93,8 @@ class CaseBoundaryDetector:
             is_noise = self.preprocessor.is_noise(line_idx)
             
             if state == self.SEEKING:
-                # Looking for a division header
-                division_match = RE_DIVISION.match(line_text)
+                # Looking for a division header with era fallthrough
+                division_match, division_era = self._match_division_with_fallthrough(line_text)
                 if division_match:
                     # Found division header, start new boundary
                     current_boundary = CaseBoundary(
@@ -124,10 +110,8 @@ class CaseBoundaryDetector:
                 # Found division header, now looking for case bracket
                 # Skip noise lines when searching for brackets (brackets are not noise)
                 if not is_noise:
-                    bracket_match = RE_CASE_BRACKET.match(line_text)
-                    # FIX-2: Try fallback regex if primary fails
-                    if not bracket_match:
-                        bracket_match = RE_CASE_BRACKET_NO_CLOSE.match(line_text)
+                    # Try bracket matching with era fallthrough
+                    bracket_match, bracket_era, bracket_type = self._match_bracket_with_fallthrough(line_text)
                     
                     if bracket_match:
                         # Found bracket! Extract case number and date
@@ -192,11 +176,8 @@ class CaseBoundaryDetector:
                     consolidated_lines_searched += 1
                     continue
                 
-                # Check if this line is a bracket
-                bracket_match = RE_CASE_BRACKET.match(line_text)
-                # FIX-2: Try fallback regex for consolidated cases too
-                if not bracket_match and consolidated_lines_searched < consolidated_search_limit:
-                    bracket_match = RE_CASE_BRACKET_NO_CLOSE.match(line_text)
+                # Check if this line is a bracket with era fallthrough
+                bracket_match, bracket_era, bracket_type = self._match_bracket_with_fallthrough(line_text)
                 
                 if bracket_match and consolidated_lines_searched < consolidated_search_limit:
                     # Found second bracket (consolidated case)

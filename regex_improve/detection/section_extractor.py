@@ -10,8 +10,9 @@ if str(_REGEX_IMPROVE_DIR) not in sys.path:
     sys.path.insert(0, str(_REGEX_IMPROVE_DIR))
 
 from detection.preprocess import VolumePreprocessor
-from detection.boundary_fsm import CaseBoundary, CaseNumber, RE_DIVISION, RE_CASE_BRACKET
+from detection.boundary_fsm import CaseBoundary, CaseNumber
 from detection.justice_registry import load_justices
+from .pattern_registry import get_era_config
 
 # Import Annotation from gui.models for type hints
 try:
@@ -31,41 +32,6 @@ except ImportError:
         group: Optional[int] = None
         confidence: float = 1.0
 
-
-# Module-level regex constants
-RE_SYLLABUS = re.compile(r'^SYLLABUS\s*$')
-RE_COUNSEL_HEADER = re.compile(r'^APPEARANCES?\s+OF\s+COUNSEL\s*$', re.IGNORECASE)
-RE_DOC_TYPE = re.compile(
-    r'^(?:DECISION|RESOLUTION|'
-    r'D\s+E\s+C\s+I\s+S\s+I\s+O\s+N|'
-    r'R\s+E\s+S\s+O\s+L\s+U\s+T\s+I\s+O\s+N)\s*$'
-)
-RE_PONENTE = re.compile(
-    r'^([A-Z][A-Z\s,.\'\-]+?),\s*(?:C\.?\s*J\.?\s*|J\.?\s*)[,:;]+\s*$'
-)
-RE_PER_CURIAM = re.compile(r'^PER\s+CURIAM\s*[,:;]*\s*$', re.IGNORECASE)
-RE_SO_ORDERED = re.compile(r'^SO\s*ORDERED\s*[.,;]?\s*$', re.IGNORECASE)
-RE_SEPARATE_OPINION = re.compile(
-    r'^([A-Z][A-Z\s,.\'\-]+?),\s*(?:C\.?\s*J\.?\s*|J\.?\s*),?\s*'
-    r'(?:concurring|dissenting|separate)\b',
-    re.IGNORECASE
-)
-
-# New regex patterns for votes extraction (FIX-1)
-RE_VOTES_CONTENT = re.compile(
-    r'(?:concur|dissent|dissenting|separate opinion|'
-    r'JJ\.|J\.\,|J\.\:|C\.J\.|'
-    r'Chairman|Presiding|'
-    r'\(on leave\)|\(on official leave\)|\(no part\)|'
-    r'[A-Z]{3,}(?:\s+[A-Z]{3,})*(?:\s+[A-Z]\.)?(?:\s+[A-Z]{3,})*)',
-    re.IGNORECASE
-)
-
-RE_FOOTNOTE_START = re.compile(r'^(?:\d+\s+|\*|\")')
-
-# FIX-234-1: Regex for WHEREFORE dispositif paragraph (fallback end_decision detection)
-RE_WHEREFORE = re.compile(r'^\s*WHEREFORE\b', re.IGNORECASE)
-
 # Cached justice registry for WHEREFORE fallback
 _KNOWN_JUSTICES = None
 
@@ -84,23 +50,6 @@ def _line_has_justice_surname(text, justices):
             return True
     return False
 
-# FIX-4: Regex for attorney designation lines in counsel block
-RE_COUNSEL_DESIGNATION = re.compile(
-    r'for\s+(?:the\s+)?(?:petitioner|respondent|plaintiff|defendant|appellant|appellee|'
-    r'accused|complainant|private|intervenor|oppositor)',
-    re.IGNORECASE
-)
-
-# FIX-5: Regex for parties termination (legal designations)
-RE_PARTIES_END = re.compile(
-    r'(?:respondents?|petitioners?|plaintiffs?|defendants?|appellants?|appellees?|'
-    r'accused-appellants?|intervenors?|oppositors?)\s*[.,;]*\s*$',
-    re.IGNORECASE
-)
-
-# FIX-234-4: Regex for "vs." lines in parties block
-RE_VS_LINE = re.compile(r'^\s*vs\.?\s', re.IGNORECASE)
-
 
 @dataclass
 class ExtractedCase:
@@ -113,9 +62,11 @@ class ExtractedCase:
 class SectionExtractor:
     """Extracts all annotation labels within each case boundary."""
     
-    def __init__(self, preprocessor: VolumePreprocessor):
+    def __init__(self, preprocessor: VolumePreprocessor, vol_num: Optional[int] = None):
         self.preprocessor = preprocessor
         self.loader = preprocessor.loader
+        self.vol_num: Optional[int] = vol_num
+        self.config = get_era_config(vol_num)
     
     def extract_all(self, boundaries: List[CaseBoundary]) -> List[ExtractedCase]:
         """Extract annotations for all case boundaries."""
@@ -256,15 +207,15 @@ class SectionExtractor:
                         line_num, text = lines[parties_end_idx]
 
                         # Stop condition (a): RE_SYLLABUS or RE_DOC_TYPE — always stop
-                        if RE_SYLLABUS.match(text) or RE_DOC_TYPE.match(text):
+                        if self.config.re_syllabus.match(text) or self.config.re_doc_type.match(text):
                             break
 
                         # Track "vs." lines
-                        if RE_VS_LINE.match(text) or 'vs.' in text.lower():
+                        if self.config.re_vs_line.match(text) or 'vs.' in text.lower():
                             seen_vs = True
 
                         # Check if this line ends with a legal designation
-                        if RE_PARTIES_END.search(text):
+                        if self.config.re_parties_end.search(text):
                             if not seen_first_designation:
                                 if seen_vs:
                                     # Already past vs. — this is the terminal designation
@@ -282,7 +233,7 @@ class SectionExtractor:
                                 break
 
                         # Stop at footnote-like lines only after terminal designation
-                        if RE_FOOTNOTE_START.match(text):
+                        if self.config.re_footnote_start.match(text):
                             if seen_first_designation and seen_vs:
                                 break
 
@@ -324,8 +275,8 @@ class SectionExtractor:
         while current_idx < len(lines):
             line_num, text = lines[current_idx]
             
-            # Check for syllabus
-            if RE_SYLLABUS.match(text):
+            # Check for syllabus (skip for era5 which has has_syllabus=False)
+            if self.config.has_syllabus and self.config.re_syllabus.match(text):
                 # start_syllabus
                 syllabus_start_ann = self._make_annotation(
                     label="start_syllabus",
@@ -340,7 +291,7 @@ class SectionExtractor:
                 end_syllabus_idx = current_idx + 1
                 while end_syllabus_idx < len(lines):
                     end_line_num, end_text = lines[end_syllabus_idx]
-                    if RE_COUNSEL_HEADER.match(end_text) or RE_DOC_TYPE.match(end_text):
+                    if self.config.re_counsel_header.match(end_text) or self.config.re_doc_type.match(end_text):
                         break
                     end_syllabus_idx += 1
                 
@@ -364,7 +315,7 @@ class SectionExtractor:
                 continue
             
             # Check for counsel header
-            if RE_COUNSEL_HEADER.match(text):
+            if self.config.re_counsel_header.match(text):
                 counsel_start_idx = current_idx
                 # FIX-4: Smart counsel extraction with early termination
                 # The counsel block has a predictable structure:
@@ -385,11 +336,11 @@ class SectionExtractor:
                     end_line_num, end_text = lines[counsel_end_idx]
                     
                     # Stop condition (a): RE_DOC_TYPE
-                    if RE_DOC_TYPE.match(end_text):
+                    if self.config.re_doc_type.match(end_text):
                         break
                     
                     # Stop condition (c): RE_DIVISION or RE_CASE_BRACKET (next case)
-                    if RE_DIVISION.match(end_text) or RE_CASE_BRACKET.match(end_text):
+                    if self.config.re_division.match(end_text) or self.config.re_case_bracket.match(end_text):
                         break
                     
                     # Check for blank line
@@ -406,16 +357,16 @@ class SectionExtractor:
                         lines_scanned += 1
                         
                         # Check if this line contains an attorney designation
-                        if RE_COUNSEL_DESIGNATION.search(end_text):
+                        if self.config.re_counsel_designation.search(end_text):
                             seen_designation = True
                         
                         # If we've seen a designation and this line doesn't have one,
                         # it might be the end of the counsel block
-                        if seen_designation and not RE_COUNSEL_DESIGNATION.search(end_text):
+                        if seen_designation and not self.config.re_counsel_designation.search(end_text):
                             # Check if this looks like a continuation of an attorney name
                             # (e.g., multi-line attorney entries)
                             # Simple heuristic: if line is short (< 50 chars) and doesn't start with footnote marker
-                            if len(end_text.strip()) < 50 and not RE_FOOTNOTE_START.match(end_text):
+                            if len(end_text.strip()) < 50 and not self.config.re_footnote_start.match(end_text):
                                 # Might still be part of counsel (e.g., second line of attorney name)
                                 pass
                             else:
@@ -430,7 +381,7 @@ class SectionExtractor:
                     counsel_end_idx = current_idx + 1
                     while counsel_end_idx < len(lines):
                         end_line_num, end_text = lines[counsel_end_idx]
-                        if RE_DOC_TYPE.match(end_text):
+                        if self.config.re_doc_type.match(end_text):
                             break
                         counsel_end_idx += 1
                 
@@ -457,7 +408,7 @@ class SectionExtractor:
                 continue
             
             # Check for doc_type
-            if RE_DOC_TYPE.match(text):
+            if self.config.re_doc_type.match(text):
                 doc_type_ann = self._make_annotation(
                     label="doc_type",
                     text=text.strip(),
@@ -476,8 +427,8 @@ class SectionExtractor:
                     if not next_text.strip():
                         continue
                     
-                    ponente_match = RE_PONENTE.match(next_text)
-                    per_curiam_match = RE_PER_CURIAM.match(next_text)
+                    ponente_match = self.config.re_ponente.match(next_text)
+                    per_curiam_match = self.config.re_per_curiam.match(next_text)
                     
                     if ponente_match:
                         ponente_text = ponente_match.group(1).strip()
@@ -569,7 +520,7 @@ class SectionExtractor:
                 end_decision_text = None
                 
                 for i, (line_num, text) in enumerate(decision_lines):
-                    if RE_SO_ORDERED.match(text):
+                    if self.config.re_so_ordered.match(text):
                         end_decision_line = line_num
                         end_decision_text = text
                         # Do NOT break - continue to find the last occurrence
@@ -594,7 +545,7 @@ class SectionExtractor:
                     justices = _get_known_justices()
                     wherefore_candidates = []
                     for i, (line_num, text) in enumerate(decision_lines):
-                        if RE_WHEREFORE.match(text):
+                        if self.config.re_wherefore.match(text):
                             wherefore_candidates.append((i, line_num, text))
                     
                     # Check candidates in reverse (last first)
@@ -663,12 +614,12 @@ class SectionExtractor:
                             
                             # Stop conditions (in order of priority):
                             # 1. RE_SEPARATE_OPINION (existing check)
-                            if RE_SEPARATE_OPINION.match(text):
+                            if self.config.re_separate_opinion.match(text):
                                 separate_opinion_idx = i
                                 break
                             
                             # 2. RE_DIVISION or RE_CASE_BRACKET (next case start)
-                            if RE_DIVISION.match(text) or RE_CASE_BRACKET.match(text):
+                            if self.config.re_division.match(text) or self.config.re_case_bracket.match(text):
                                 break
                             
                             # 3. Two consecutive blank lines (double blank = section break)
@@ -692,10 +643,10 @@ class SectionExtractor:
                                 has_justice = _line_has_justice_surname(text, justices)
                                 
                                 # Check if this line looks like a votes line (existing regex)
-                                is_votes_line = RE_VOTES_CONTENT.search(text) is not None
+                                is_votes_line = self.config.re_votes_content.search(text) is not None
                                 
                                 # Skip footnote lines
-                                if RE_FOOTNOTE_START.match(text):
+                                if self.config.re_footnote_start.match(text):
                                     if in_votes_section:
                                         # In votes + footnote pattern + no justice surname = stop
                                         if not has_justice:
@@ -773,9 +724,9 @@ class SectionExtractor:
                         opinion_starts = []
                         for scan_idx in range(opinion_scan_start, len(lines)):
                             scan_line_num, scan_text = lines[scan_idx]
-                            if RE_DIVISION.match(scan_text) or RE_CASE_BRACKET.match(scan_text):
+                            if self.config.re_division.match(scan_text) or self.config.re_case_bracket.match(scan_text):
                                 break
-                            if RE_SEPARATE_OPINION.match(scan_text) or RE_SEP_OPINION_HEADER.match(scan_text):
+                            if self.config.re_separate_opinion.match(scan_text) or RE_SEP_OPINION_HEADER.match(scan_text):
                                 opinion_starts.append(scan_idx)
 
                         # Deduplicate: header + attribution within 3 lines = keep header only
@@ -816,7 +767,7 @@ class SectionExtractor:
                                 last_nonblank_text = op_start_text
                                 for search_idx in range(op_start_idx + 1, end_search_limit):
                                     s_line, s_text = lines[search_idx]
-                                    if RE_DIVISION.match(s_text) or RE_CASE_BRACKET.match(s_text):
+                                    if self.config.re_division.match(s_text) or self.config.re_case_bracket.match(s_text):
                                         break
                                     if s_text.strip():
                                         last_nonblank_line = s_line
