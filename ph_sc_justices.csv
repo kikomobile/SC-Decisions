@@ -1,0 +1,224 @@
+No.,Name,Birth Year,Death Year,Position,Succeeded,Tenure Start,Tenure End,Tenure Length,Appointed By
+1,Cayetano Arellano,1847,1920,Chief Justice,Inaugural,June 15 1901,April 12 1920,18 years 302 days,William McKinley
+2,Florentino Torres,1844,1926,Associate Justice,Inaugural,June 15 1901,April 20 1920,18 years 310 days,William McKinley
+3,Victorino Mapa,1852,1927,Associate Justice,Inaugural,June 15 1901,October 31 1913,12 years 138 days,William McKinley
+4,James Francis Smith,1859,1928,Associate Justice,Inaugural,June 15 1901,February 17 1903,1 year 247 days,William McKinley
+5,Joseph F. Cooper,1854,1942,Associate Justice,Inaugural,June 15 1901,October 17 1904,3 years 124 days,William McKinley
+6,Charles Andrew Willard,1857,1914,Associate Justice,Inaugural,June 15 1901,April 24 1904,2 years 314 days,William McKinley
+7,Fletcher Ladd,1862,1903,Associate Justice,Inaugural,June 15 1901,July 13 1903,2 years 28 days,William McKinley
+8,John T. McDonough,1843,1917,Associate Justice,Smith,February 18 1903,May 1 1904,1 year 73 days,Theodore Roosevelt
+9,Elias Finley Johnson,1861,1933,Associate Justice,Ladd,October 3 1903,April 1 1933,29 years 180 days,Theodore Roosevelt
+10,Adam Clarke Carson,1869,1941,Associate Justice,Willard,November 16 1904,November 30 1920,16 years 14 days,Theodore Roosevelt
+11,James F. Tracey,1854,1925,Associate Justice,McDonough,July 1 1905,July 2 1909,4 years 1 day,Theodore Roosevelt
+12,Sherman Moreland,1868,1951,Associate Justice,Cooper,February 1 1909,April 23 1917,8 years 81 days,Theodore Roosevelt
+13,Charles B. Elliott,1861,1935,Associate Justice,Tracey,September 1 1909,February 13 1910,165 days,William Howard Taft
+14,Grant Trent,1869,1943,Associate Justice,Elliott,February 28 1910,April 23 1917,7 years 54 days,William Howard Taft
+15,Manuel Araullo,1853,1924,Associate Justice,Mapa,December 16 1913,November 1 1921,7 years 320 days,Woodrow Wilson
+16,Thomas Street,1872,1936,Associate Justice,Moreland,June 13 1917,June 1 1935,17 years 353 days,Woodrow Wilson
+17,George A. Malcolm,1881,1961,Associate Justice,Trent,July 9 1917,January 20 1936,18 years 195 days,Woodrow Wilson
+18,Ramón Avanceña,1872,1957,Associate Justice,New seat,October 31 1917,March 31 1925,7 years 151 days,Woodrow Wilson
+19,Frederick Charles Fisher,1879,1964,Associate Justice,New seat,November 17 1917,November 16 1918,364 days,Woodrow Wilson
+20,Percy Moir,1870,1928,Associate Justice,Fisher,November 25 1918,November 20 1920,1 year 361 days,Woodrow Wilson
+21,Ignacio Villamor,1863,1933,Associate Justice,F. Torres,May 19 1920,May 25 1933,14 years 6 days,Woodrow Wilson
+3-CJ,Victorino Mapa,1852,1927,Chief Justice,Arellano,July 1 1920,October 31 1921,1 year 122 days,Woodrow Wilson
+22,James Ostrand,1871,1937,Associate Justice,Moir,September 27 1921,June 30 1933,11 years 276 days,Warren G. Harding
+23,Charles A. Johns,1857,1932,Associate Justice,Carson,October 7 1921,January 11 1932,10 years 96 days,Warren G. Harding
+15-CJ,Manuel Araullo,1853,1924,Chief Justice,Mapa,November 1 1921,July 26 1924,2 years 268 days,Warren G. Harding
+24,Norberto Romualdez,1875,1941,Associate Justice,Araullo,November 1 1921,April 1 1932,10 years 152 days,Warren G. Harding
+18-CJ,Ramón Avanceña,1872,1957,Chief Justice,Araullo,April 1 1925,December 24 1941,16 years 267 days,Calvin Coolidge
+25,Antonio Villareal,1880,1945,Associate Justice,Avanceña,June 16 1925,June 5 1940,14 years 355 days,Calvin Coolidge
+26,John A. Hull,1874,1944,Associate Justice,New seat,June 1 1932,February 1 1936,3 years 245 days,Herbert Hoover
+27,James C. Vickers,1877,1945,Associate Justice,Johns,June 1 1932,February 1 1936,3 years 245 days,Herbert Hoover
+28,José Abad Santos,1886,1942,Associate Justice,New seat,June 18 1932,December 5 1938,6 years 170 days,Herbert Hoover
+29,Carlos Imperial,1880,1941,Associate Justice,Romualdez,June 22 1932,May 20 1941,8 years 332 days,Herbert Hoover
+30,George C. Butte,1877,1940,Associate Justice,Johnson,July 1 1932,February 1 1936,3 years 215 days,Herbert Hoover
+31,Anacleto Díaz,1878,1945,Associate Justice,I. Villamor,November 20 1933,December 19 1941,8 years 29 days,Franklin D. Roosevelt
+32,Leonard Goddard,1871,1959,Associate Justice,Ostrand,January 9 1934,February 1 1936,2 years 23 days,Franklin D. Roosevelt
+33,Claro M. Recto,1890,1960,Associate Justice,Street,July 3 1935,November 1 1936,1 year 121 days,Franklin D. Roosevelt
+34,Jose P. Laurel,1891,1959,Associate Justice,Malcolm,February 29 1936,February 5 1942,5 years 342 days,Manuel L. Quezon
+35,Pedro Concepcion,1893,1969,Associate Justice,Hull,October 31 1936,January 1 1940,3 years 62 days,Manuel L. Quezon
+36,Manuel Moran,1893,1961,Associate Justice,Vickers,December 12 1938,July 9 1945,6 years 209 days,Manuel L. Quezon
+37,Roman Ozaeta,1891,1972,Associate Justice,Butte,June 24 1941,May 29 1946,4 years 339 days,Manuel L. Quezon
+28-AJ2,José Abad Santos,1886,1942,Associate Justice,Goddard,July 16 1941,December 24 1941,161 days,Manuel L. Quezon
+28-CJ,José Abad Santos,1886,1942,Chief Justice,Avanceña,December 24 1941,May 1 1942,128 days,Manuel L. Quezon
+38,Ricardo Paras,1891,1984,Associate Justice,Recto,December 28 1941,April 2 1951,9 years 95 days,Manuel L. Quezon
+39,José Yulo,1894,1976,Chief Justice,Court reorganized,January 26 1942,July 9 1945,3 years 164 days,Masaharu Homma
+40,Jorge Bocobo,1886,1965,Associate Justice,Court reorganized,February 5 1942,January 31 1944,1 year 360 days,Jorge B. Vargas
+41,Jose Generoso,1881,1976,Associate Justice,Court reorganized,May 11 1942,July 15 1948,6 years 65 days,Jorge B. Vargas
+42,Jose Lopez Vito,1872,1947,Associate Justice,Court reorganized,May 11 1942,January 31 1944,1 year 265 days,Jorge B. Vargas
+42-A,Domingo Imperial,1890,1965,Associate Justice,Court reorganized,May 11 1942,January 31 1944,1 year 265 days,Jorge B. Vargas
+43,Antonio Horrilleno,1878,1964,Associate Justice,Court reorganized,November 23 1943,June 6 1945,1 year 195 days,Jose P. Laurel
+44,Delfin Jaranilla,1883,1980,Associate Justice,Court reorganized,June 6 1945,June 6 1946,1 year 0 days,Sergio Osmeña
+45,Felicisimo Feria,1883,1957,Associate Justice,Court reorganized,June 6 1945,August 6 1953,8 years 61 days,Sergio Osmeña
+46,Mariano de Joya,1887,1964,Associate Justice,Court reorganized,June 6 1945,June 25 1946,1 year 19 days,Sergio Osmeña
+47,Guillermo Pablo,1886,1982,Associate Justice,Court reorganized,June 6 1945,June 4 1955,9 years 363 days,Sergio Osmeña
+48,Gregorio Perfecto,1891,1949,Associate Justice,Court reorganized,June 6 1945,August 17 1949,4 years 72 days,Sergio Osmeña
+49,Emilio Hilado,1891,1967,Associate Justice,Court reorganized,June 6 1945,May 31 1948,2 years 360 days,Sergio Osmeña
+50,Jose Espiritu,1886,1982,Associate Justice,Court reorganized,June 6 1945,August 15 1945,70 days,Sergio Osmeña
+36-CJ,Manuel Moran,1893,1961,Chief Justice,Court reorganized,July 9 1945,March 20 1951,5 years 254 days,Sergio Osmeña
+51,Manuel Briones,1893,1957,Associate Justice,Moran,September 15 1945,May 24 1949,3 years 251 days,Sergio Osmeña
+52,César Bengzon,1896,1992,Associate Justice,Espiritu,September 15 1945,April 28 1961,15 years 225 days,Sergio Osmeña
+53,Sabino Padilla,1894,1986,Associate Justice,Ozaeta,June 25 1946,August 21 1964,17 years 362 days,Manuel Roxas
+54,Pedro Tuason,1884,1961,Associate Justice,Jaranilla,June 25 1946,January 4 1954,7 years 193 days,Manuel Roxas
+55,Jose Hontiveros,1889,1954,Associate Justice,De Joya,June 25 1946,October 16 1947,1 year 113 days,Manuel Roxas
+56,Alejandro Reyes,1899,1972,Associate Justice,Hontiveros,August 6 1948,June 3 1959,10 years 301 days,Elpidio Quirino
+57,Marcelino Montemayor,1890,1971,Associate Justice,Hilado,August 21 1948,June 27 1960,11 years 311 days,Elpidio Quirino
+58,Luis Torres,1880,1959,Associate Justice,Generoso,August 20 1949,April 1 1950,224 days,Elpidio Quirino
+59,Felix Angelo Bautista,1896,1990,Associate Justice,Briones,October 20 1950,May 20 1956,5 years 213 days,Elpidio Quirino
+60,Fernando Jugo,1891,1956,Associate Justice,Perfecto,October 20 1950,June 3 1956,5 years 227 days,Elpidio Quirino
+38-CJ,Ricardo Paras,1891,1984,Chief Justice,Moran,April 2 1951,February 17 1961,9 years 321 days,Elpidio Quirino
+61,Alejo Labrador,1894,1967,Associate Justice,L. Torres,April 22 1952,July 17 1964,12 years 86 days,Elpidio Quirino
+62,Roberto Concepcion,1903,1987,Associate Justice,R. Paras,February 9 1954,June 17 1966,12 years 128 days,Ramon Magsaysay
+63,Ramón Diokno,1886,1954,Associate Justice,F. Feria,February 10 1954,April 21 1954,70 days,Ramon Magsaysay
+64,J. B. L. Reyes,1902,1994,Associate Justice,Tuason,June 30 1954,August 19 1972,18 years 50 days,Ramon Magsaysay
+65,Pastor Endencia,1890,1981,Associate Justice,Diokno,December 20 1955,July 26 1960,4 years 219 days,Ramon Magsaysay
+66,Alfonso Felix,1888,1968,Associate Justice,Pablo,July 24 1956,September 17 1958,2 years 55 days,Ramon Magsaysay
+67,Jesus Barrera,1896,1988,Associate Justice,Bautista,June 5 1959,December 18 1966,7 years 196 days,Carlos P. Garcia
+68,Jose Gutierrez David,1891,1977,Associate Justice,Jugo,August 28 1959,January 29 1961,1 year 154 days,Carlos P. Garcia
+69,Arsenio Dizon,1901,1990,Associate Justice,Felix,July 26 1960,October 5 1971,11 years 71 days,Carlos P. Garcia
+70,Jose Maria Paredes,1895,1977,Associate Justice,A. Reyes,August 18 1960,August 15 1965,4 years 362 days,Carlos P. Garcia
+52-CJ,César Bengzon,1896,1992,Chief Justice,R. Paras,April 28 1961,May 29 1966,5 years 31 days,Carlos P. Garcia
+71,Dionisio de Leon,1892,1963,Associate Justice,Montemayor,April 28 1961,April 8 1962,345 days,Carlos P. Garcia
+72,Felipe Natividad,1891,1965,Associate Justice,Endencia,April 28 1961,September 20 1961,145 days,Carlos P. Garcia
+73,Roberto Regala,1897,1979,Associate Justice,Gutierrez David,May 23 1962,December 22 1975,13 years 213 days,Diosdado Macapagal
+74,Querube Makalintal,1910,2002,Associate Justice,C. Bengzon,May 23 1962,October 21 1973,11 years 151 days,Diosdado Macapagal
+75,Calixto Zaldivar,1904,1979,Associate Justice,Natividad,September 12 1964,September 13 1974,10 years 1 day,Diosdado Macapagal
+76,Jose Bengzon,1898,1990,Associate Justice,D. De Leon,September 12 1964,May 5 1968,3 years 236 days,Diosdado Macapagal
+77,Conrado Sanchez,1900,1983,Associate Justice,Labrador,May 29 1966,February 19 1970,3 years 266 days,Ferdinand Marcos
+78,Fred Ruiz Castro,1914,1979,Associate Justice,S. Padilla,May 29 1966,January 5 1976,9 years 221 days,Ferdinand Marcos
+62-CJ,Roberto Concepcion,1903,1987,Chief Justice,C. Bengzon,June 17 1966,April 18 1973,6 years 305 days,Ferdinand Marcos
+79,Eugenio Angeles,1898,1977,Associate Justice,Paredes,June 30 1967,November 2 1968,1 year 125 days,Ferdinand Marcos
+80,Enrique Fernando,1915,2004,Associate Justice,Concepcion,June 30 1967,July 2 1979,12 years 2 days,Ferdinand Marcos
+81,Francisco Capistrano,1899,1980,Associate Justice,Barrera,September 16 1968,October 6 1969,1 year 20 days,Ferdinand Marcos
+82,Claudio Teehankee,1918,1989,Associate Justice,J. Bengzon,December 17 1968,April 1 1986,17 years 105 days,Ferdinand Marcos
+83,Antonio Barredo,1912,1996,Associate Justice,Angeles,December 17 1968,October 4 1982,13 years 291 days,Ferdinand Marcos
+84,Julio Villamor,1902,1988,Associate Justice,Capistrano,January 24 1970,April 12 1972,2 years 79 days,Ferdinand Marcos
+85,Felix Makasiar,1915,1992,Associate Justice,Sanchez,August 2 1970,July 25 1985,14 years 357 days,Ferdinand Marcos
+86,Salvador Esguerra,1906,1979,Associate Justice,Dizon,June 17 1972,June 19 1976,4 years 2 days,Ferdinand Marcos
+87,Felix Antonio,1911,1991,Associate Justice,J. Villamor,June 30 1972,May 18 1980,7 years 323 days,Ferdinand Marcos
+88,Estanislao Fernandez,1910,1982,Associate Justice,J. Reyes,October 19 1973,March 28 1975,1 year 160 days,Ferdinand Marcos
+74-CJ,Querube Makalintal,1910,2002,Chief Justice,Concepcion,October 21 1973,December 22 1975,2 years 62 days,Ferdinand Marcos
+89,Cecilia Muñoz-Palma,1913,2006,Associate Justice,New seat,October 29 1973,November 22 1978,5 years 24 days,Ferdinand Marcos
+90,Ramon Aquino,1917,1993,Associate Justice,New seat,October 29 1973,November 19 1985,12 years 21 days,Ferdinand Marcos
+91,Hermogenes Concepcion Jr.,1920,2018,Associate Justice,Makalintal,April 18 1975,April 16 1986,10 years 363 days,Ferdinand Marcos
+92,Ruperto Martin,1913,1997,Associate Justice,Zaldivar,April 18 1975,January 10 1978,2 years 267 days,Ferdinand Marcos
+78-CJ,Fred Ruiz Castro,1914,1979,Chief Justice,Makalintal,January 5 1976,April 19 1979,3 years 104 days,Ferdinand Marcos
+93,Juvenal Guerrero,1916,1991,Associate Justice,E. Fernandez,May 11 1977,November 4 1984,7 years 177 days,Ferdinand Marcos
+94,Guillermo Santos,1915,1991,Associate Justice,Regala,May 11 1977,January 23 1980,2 years 257 days,Ferdinand Marcos
+95,Ramon Fernandez,1916,1997,Associate Justice,Castro,May 27 1977,May 11 1982,4 years 349 days,Ferdinand Marcos
+96,Vicente Abad Santos,1916,1993,Associate Justice,Esguerra,January 17 1979,July 12 1986,7 years 176 days,Ferdinand Marcos
+97,Pacifico de Castro,1915,2000,Associate Justice,Martin,January 17 1979,May 31 1984,5 years 135 days,Ferdinand Marcos
+98,Ameurfina Melencio-Herrera,1922,2020,Associate Justice,Muñoz-Palma,January 17 1979,May 11 1992,13 years 115 days,Ferdinand Marcos
+80-CJ,Enrique Fernando,1915,2004,Chief Justice,Castro,July 2 1979,July 24 1985,6 years 22 days,Ferdinand Marcos
+99,Vicente Ericta,1915,2007,Associate Justice,Fernando,November 20 1981,May 11 1982,172 days,Ferdinand Marcos
+100,Efren Plana,1928,2012,Associate Justice,Santos,November 20 1981,April 16 1986,4 years 147 days,Ferdinand Marcos
+101,Venicio Escolin,1921,2008,Associate Justice,Antonio,November 20 1981,April 15 1986,4 years 146 days,Ferdinand Marcos
+102,Conrado M. Vasquez,1913,2006,Associate Justice,R. Fernandez,May 14 1982,September 3 1983,1 year 112 days,Ferdinand Marcos
+103,Lorenzo Relova,1916,2014,Associate Justice,Ericta,May 14 1982,January 19 1986,3 years 250 days,Ferdinand Marcos
+104,Hugo Gutierrez Jr.,1927,2013,Associate Justice,Barredo,May 14 1982,March 31 1993,10 years 321 days,Ferdinand Marcos
+105,Buenaventura de la Fuente,1922,2000,Associate Justice,Vasquez,February 28 1984,March 6 1986,2 years 6 days,Ferdinand Marcos
+106,Serafin R. Cuevas,1928,2014,Associate Justice,P. De Castro,June 1 1984,April 16 1986,1 year 319 days,Ferdinand Marcos
+107,Nestor Alampay,1920,1995,Associate Justice,Guerrero,January 24 1985,March 17 1986,1 year 52 days,Ferdinand Marcos
+85-CJ,Felix Makasiar,1915,1992,Chief Justice,Fernando,July 25 1985,November 19 1985,117 days,Ferdinand Marcos
+108,Lino Patajo,1916,2010,Associate Justice,Makasiar,July 31 1985,April 16 1986,259 days,Ferdinand Marcos
+90-CJ,Ramon Aquino,1917,1993,Chief Justice,Makasiar,November 20 1985,March 6 1986,106 days,Ferdinand Marcos
+82-CJ,Claudio Teehankee,1918,1989,Chief Justice,Court reorganized,April 2 1986,April 18 1988,2 years 16 days,Corazon Aquino
+109,Jose Feria,1917,2008,Associate Justice,Court reorganized,April 7 1986,January 10 1987,278 days,Corazon Aquino
+110,Pedro Yap,1918,2003,Associate Justice,Court reorganized,April 8 1986,April 18 1988,2 years 10 days,Corazon Aquino
+111,Marcelo Fernan,1926,1999,Associate Justice,Court reorganized,April 9 1986,July 1 1988,2 years 83 days,Corazon Aquino
+112,Andres Narvasa,1928,2013,Associate Justice,Court reorganized,April 10 1986,December 7 1991,5 years 241 days,Corazon Aquino
+113,Isagani Cruz,1924,2013,Associate Justice,Court reorganized,April 16 1986,October 11 1994,8 years 178 days,Corazon Aquino
+114,Edgardo Paras,1922,1994,Associate Justice,Court reorganized,April 16 1986,July 4 1992,6 years 79 days,Corazon Aquino
+115,Florentino P. Feliciano,1928,2015,Associate Justice,Court reorganized,August 18 1986,December 13 1995,9 years 117 days,Corazon Aquino
+116,Teodoro Padilla,1927,1999,Associate Justice,Court reorganized,January 12 1987,August 22 1997,10 years 222 days,Corazon Aquino
+117,Abdulwahid Bidin,1925,1999,Associate Justice,Court reorganized,January 12 1987,April 7 1995,8 years 85 days,Corazon Aquino
+118,Emilio Gancayco,1921,2009,Associate Justice,Court reorganized,January 12 1987,August 20 1991,4 years 220 days,Corazon Aquino
+119,Abraham Sarmiento,1921,2010,Associate Justice,V. Abad Santos,January 25 1987,October 8 1991,4 years 256 days,Corazon Aquino
+120,Irene Cortes,1921,1996,Associate Justice,J. Feria,February 1 1987,October 20 1990,3 years 261 days,Corazon Aquino
+121,Carolina Griño-Aquino,1923,2012,Associate Justice,Teehankee,February 2 1988,October 22 1993,5 years 262 days,Corazon Aquino
+110-CJ,Pedro Yap,1918,2003,Chief Justice,Teehankee,April 19 1988,June 30 1988,72 days,Corazon Aquino
+122,Leo Medialdea,1927,1992,Associate Justice,Yap,May 2 1988,November 7 1992,4 years 189 days,Corazon Aquino
+111-CJ,Marcelo Fernan,1926,1999,Chief Justice,Yap,July 1 1988,December 6 1991,3 years 158 days,Corazon Aquino
+123,Florenz Regalado,1928,2015,Associate Justice,Fernan,July 29 1988,October 13 1998,10 years 76 days,Corazon Aquino
+124,Hilario Davide Jr.,,living,Associate Justice,Cortes,January 24 1991,November 29 1998,7 years 278 days,Corazon Aquino
+125,Flerida Ruth Pineda-Romero,1929,2017,Associate Justice,Sarmiento,October 21 1991,August 1 1999,7 years 284 days,Corazon Aquino
+126,Rodolfo Nocon,1928,2000,Associate Justice,Gancayco,December 2 1991,March 15 1994,2 years 103 days,Corazon Aquino
+112-CJ,Andres Narvasa,1928,2013,Chief Justice,Fernan,December 8 1991,November 30 1998,6 years 357 days,Corazon Aquino
+127,Josue Bellosillo,,living,Associate Justice,Narvasa,March 3 1992,November 13 2003,11 years 255 days,Corazon Aquino
+128,Jose Melo,1932,2020,Associate Justice,Melencio-Herrera,August 10 1992,May 30 2002,9 years 293 days,Fidel V. Ramos
+129,Jose C. Campos,1923,2005,Associate Justice,E. Paras,September 3 1992,April 9 1993,218 days,Fidel V. Ramos
+130,Camilo Quiason,1925,2014,Associate Justice,Medialdea,February 1 1993,July 18 1995,2 years 167 days,Fidel V. Ramos
+131,Reynato Puno,,living,Associate Justice,Gutierrez,June 28 1993,December 7 2006,13 years 162 days,Fidel V. Ramos
+132,Jose C. Vitug,,living,Associate Justice,Campos,June 28 1993,July 15 2004,11 years 17 days,Fidel V. Ramos
+133,Santiago Kapunan,,living,Associate Justice,Griño-Aquino,January 5 1994,August 12 2002,8 years 219 days,Fidel V. Ramos
+134,Vicente V. Mendoza,,living,Associate Justice,Nocon,June 7 1994,April 5 2003,8 years 302 days,Fidel V. Ramos
+135,Ricardo Francisco,1928,2001,Associate Justice,Cruz,January 5 1995,February 13 1998,3 years 39 days,Fidel V. Ramos
+136,Regino C. Hermosisima Jr.,,living,Associate Justice,Bidin,July 10 1995,October 18 1997,2 years 100 days,Fidel V. Ramos
+137,Artemio Panganiban,,living,Associate Justice,Quiason,October 5 1995,December 19 2005,10 years 75 days,Fidel V. Ramos
+138,Justo Torres Jr.,1927,2017,Associate Justice,Feliciano,March 11 1996,November 1 1997,1 year 235 days,Fidel V. Ramos
+139,Antonio Martinez,1929,2007,Associate Justice,T. Padilla,November 17 1997,February 2 1999,1 year 77 days,Fidel V. Ramos
+140,Leonardo Quisumbing,1939,2019,Associate Justice,Hermosisima,January 15 1998,November 6 2009,11 years 295 days,Fidel V. Ramos
+141,Fidel Purisima,1930,2013,Associate Justice,J. Torres,January 27 1998,October 28 2000,2 years 275 days,Fidel V. Ramos
+142,Bernardo P. Pardo,,living,Associate Justice,Francisco,September 30 1998,February 11 2002,3 years 134 days,Joseph Estrada
+124-CJ,Hilario Davide Jr.,,living,Chief Justice,Narvasa,November 30 1998,December 20 2005,7 years 20 days,Joseph Estrada
+143,Arturo Buena,1932,2020,Associate Justice,Regalado,January 5 1999,March 25 2002,3 years 79 days,Joseph Estrada
+144,Minerva Gonzaga-Reyes,,living,Associate Justice,Davide,January 5 1999,September 25 2001,2 years 263 days,Joseph Estrada
+145,Consuelo Ynares-Santiago,,living,Associate Justice,Martinez,April 6 1999,October 5 2009,10 years 182 days,Joseph Estrada
+146,Sabino de Leon Jr.,1932,2003,Associate Justice,Pineda-Romero,October 11 1999,June 9 2002,2 years 241 days,Joseph Estrada
+147,Angelina Sandoval-Gutierrez,,living,Associate Justice,Purisima,December 22 2000,February 28 2008,7 years 68 days,Joseph Estrada
+148,Antonio Carpio,,living,Associate Justice,Gonzaga-Reyes,October 26 2001,October 26 2019,18 years 0 days,Gloria Macapagal Arroyo
+149,Alicia Austria-Martinez,,living,Associate Justice,Pardo,April 9 2002,April 30 2009,7 years 21 days,Gloria Macapagal Arroyo
+150,Renato Corona,1948,2016,Associate Justice,Buena,April 9 2002,May 17 2010,8 years 38 days,Gloria Macapagal Arroyo
+151,Conchita Carpio-Morales,,living,Associate Justice,Melo,August 26 2002,June 19 2011,8 years 297 days,Gloria Macapagal Arroyo
+152,Romeo Callejo Sr.,1937,2023,Associate Justice,S. De Leon,August 26 2002,April 28 2007,4 years 245 days,Gloria Macapagal Arroyo
+153,Adolfo Azcuna,,living,Associate Justice,Kapunan,October 24 2002,February 16 2009,6 years 115 days,Gloria Macapagal Arroyo
+154,Dante Tiñga,,living,Associate Justice,V. Mendoza,July 4 2003,May 11 2009,5 years 311 days,Gloria Macapagal Arroyo
+155,Minita Chico-Nazario,1939,2022,Associate Justice,Bellosillo,February 10 2004,December 5 2009,5 years 298 days,Gloria Macapagal Arroyo
+156,Cancio Garcia,1937,2013,Associate Justice,Vitug,October 7 2004,October 30 2007,3 years 23 days,Gloria Macapagal Arroyo
+137-CJ,Artemio Panganiban,,living,Chief Justice,Davide,December 20 2005,December 7 2006,352 days,Gloria Macapagal Arroyo
+157,Presbitero Velasco Jr.,,living,Associate Justice,Panganiban,March 31 2006,August 8 2018,12 years 130 days,Gloria Macapagal Arroyo
+131-CJ,Reynato Puno,,living,Chief Justice,Panganiban,December 8 2006,May 17 2010,3 years 160 days,Gloria Macapagal Arroyo
+158,Antonio Nachura,1941,2022,Associate Justice,Puno,February 7 2007,June 13 2011,4 years 126 days,Gloria Macapagal Arroyo
+159,Ruben Reyes,1939,2021,Associate Justice,Callejo,August 2 2007,January 3 2009,4 years 126 days,Gloria Macapagal Arroyo
+160,Teresita de Castro,,living,Associate Justice,Garcia,December 3 2007,August 28 2018,10 years 268 days,Gloria Macapagal Arroyo
+161,Arturo Brion,,living,Associate Justice,Sandoval-Gutierrez,March 17 2008,December 29 2016,8 years 287 days,Gloria Macapagal Arroyo
+162,Diosdado Peralta,,living,Associate Justice,R. Reyes,January 14 2009,October 23 2019,10 years 282 days,Gloria Macapagal Arroyo
+163,Lucas Bersamin,,living,Associate Justice,Azcuna,April 3 2009,November 26 2018,9 years 237 days,Gloria Macapagal Arroyo
+164,Mariano del Castillo,,living,Associate Justice,Austria-Martinez,July 29 2009,July 29 2019,10 years 0 days,Gloria Macapagal Arroyo
+165,Roberto A. Abad,,living,Associate Justice,Tiñga,August 7 2009,May 22 2014,4 years 288 days,Gloria Macapagal Arroyo
+166,Martin Villarama Jr.,,living,Associate Justice,Ynares-Santiago,November 6 2009,January 16 2016,6 years 71 days,Gloria Macapagal Arroyo
+167,Jose P. Perez,1946,2021,Associate Justice,Quisumbing,December 26 2009,December 14 2016,6 years 354 days,Gloria Macapagal Arroyo
+168,Jose C. Mendoza,,living,Associate Justice,Chico-Nazario,January 4 2010,August 13 2017,7 years 221 days,Gloria Macapagal Arroyo
+150-CJ,Renato Corona,1948,2016,Chief Justice,Puno,May 17 2010,May 29 2012,2 years 12 days,Gloria Macapagal Arroyo
+169,Maria Lourdes Sereno,,living,Associate Justice,Corona,August 13 2010,August 24 2012,2 years 11 days,Benigno Aquino III
+170,Bienvenido Reyes,,living,Associate Justice,Nachura,August 20 2011,July 6 2017,5 years 320 days,Benigno Aquino III
+171,Estela Perlas-Bernabe,,living,Associate Justice,Carpio-Morales,September 16 2011,May 14 2022,10 years 240 days,Benigno Aquino III
+169-CJ,Maria Lourdes Sereno,,living,Chief Justice,Corona,August 25 2012,May 11 2018,5 years 259 days,Benigno Aquino III
+172,Marvic Leonen,,living,Associate Justice,Sereno,November 21 2012,Incumbent,13 years 116 days,Benigno Aquino III
+173,Francis Jardeleza,,living,Associate Justice,Abad,August 19 2014,September 26 2019,5 years 38 days,Benigno Aquino III
+174,Alfredo Benjamin Caguioa,,living,Associate Justice,Villarama,January 22 2016,Incumbent,10 years 54 days,Benigno Aquino III
+175,Samuel Martires,,living,Associate Justice,Perez,March 2 2017,August 3 2018,1 year 154 days,Rodrigo Duterte
+176,Noel Tijam,,living,Associate Justice,Brion,March 8 2017,January 5 2019,1 year 303 days,Rodrigo Duterte
+177,Andres Reyes Jr.,,living,Associate Justice,B. Reyes,July 12 2017,May 11 2020,2 years 304 days,Rodrigo Duterte
+178,Alexander Gesmundo,,living,Associate Justice,J. Mendoza,August 14 2017,April 5 2021,3 years 234 days,Rodrigo Duterte
+179,Jose Reyes Jr.,,living,Associate Justice,Velasco,August 9 2018,September 18 2020,2 years 40 days,Rodrigo Duterte
+160-CJ,Teresita de Castro,,living,Chief Justice,Sereno,August 28 2018,October 10 2018,43 days,Rodrigo Duterte
+180,Ramon Paul Hernando,,living,Associate Justice,Martires,October 10 2018,Incumbent,7 years 158 days,Rodrigo Duterte
+163-CJ,Lucas Bersamin,,living,Chief Justice,T. De Castro,November 26 2018,October 18 2019,326 days,Rodrigo Duterte
+181,Rosmari Carandang,,living,Associate Justice,T. De Castro,November 26 2018,January 9 2022,3 years 44 days,Rodrigo Duterte
+182,Amy Lazaro-Javier,,living,Associate Justice,Tijam,March 6 2019,Incumbent,7 years 11 days,Rodrigo Duterte
+183,Henri Jean Paul Inting,,living,Associate Justice,Bersamin,May 27 2019,Incumbent,6 years 294 days,Rodrigo Duterte
+184,Rodil Zalameda,,living,Associate Justice,del Castillo,August 5 2019,Incumbent,6 years 224 days,Rodrigo Duterte
+162-CJ,Diosdado Peralta,,living,Chief Justice,Bersamin,October 23 2019,March 27 2021,1 year 155 days,Rodrigo Duterte
+185,Mario Lopez,,living,Associate Justice,Jardeleza,December 3 2019,June 4 2025,5 years 183 days,Rodrigo Duterte
+186,Edgardo Delos Santos,,living,Associate Justice,Carpio,December 3 2019,June 30 2021,1 year 209 days,Rodrigo Duterte
+187,Samuel Gaerlan,,living,Associate Justice,Peralta,January 8 2020,Incumbent,6 years 68 days,Rodrigo Duterte
+188,Priscilla Baltazar-Padilla,1958,2021,Associate Justice,A. Reyes,July 16 2020,November 3 2020,110 days,Rodrigo Duterte
+189,Ricardo Rosario,,living,Associate Justice,J. Reyes,October 8 2020,Incumbent,5 years 160 days,Rodrigo Duterte
+190,Jhosep Lopez,,living,Associate Justice,Baltazar-Padilla,January 26 2021,Incumbent,5 years 50 days,Rodrigo Duterte
+178-CJ,Alexander Gesmundo,,living,Chief Justice,Peralta,April 5 2021,Incumbent,4 years 346 days,Rodrigo Duterte
+191,Japar Dimaampao,,living,Associate Justice,Gesmundo,July 2 2021,Incumbent,4 years 258 days,Rodrigo Duterte
+192,Midas Marquez,,living,Associate Justice,Delos Santos,September 27 2021,Incumbent,4 years 171 days,Rodrigo Duterte
+193,Antonio Kho Jr.,,living,Associate Justice,Carandang,February 23 2022,Incumbent,4 years 22 days,Rodrigo Duterte
+194,Maria Filomena Singh,,living,Associate Justice,Perlas-Bernabe,May 18 2022,Incumbent,3 years 303 days,Rodrigo Duterte
+195,Raul Villanueva,,living,Associate Justice,Lopez,June 9 2025,Incumbent,281 days,Bongbong Marcos
