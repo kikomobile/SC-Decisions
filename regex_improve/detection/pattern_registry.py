@@ -64,6 +64,11 @@ class EraConfig:
     parties_len_range: Tuple[int, int] = (50, 2000)
     votes_len_range: Tuple[int, int] = (20, 500)
 
+    # -- Votes extraction tuning --
+    votes_max_non_blank_lines: int = 15
+    votes_continuation_lookahead: int = 0   # lines to look ahead past blanks/footnotes
+    votes_extend_past_boundary: bool = False # allow votes to extend past case boundary
+
     # -- Behavioral flags --
     has_syllabus: bool = True   # False for era5: skip syllabus extraction entirely
 
@@ -218,6 +223,30 @@ def _init_registry():
         overrides = {}
         if era.name == "era5":
             overrides["has_syllabus"] = False
+        elif era.name == "era2":
+            # ERA-2 (261-500): 1990-2005 volumes with long votes, OCR quirks,
+            # and formatting anomalies like page-break-split votes and
+            # pre-header parties (e.g., Estrada vs. Sandiganbayan, Vol 421).
+            overrides["votes_len_range"] = (20, 1500)
+            overrides["votes_max_non_blank_lines"] = 30
+            overrides["votes_continuation_lookahead"] = 10
+            overrides["votes_extend_past_boundary"] = True
+            # Require trailing colon/semicolon on opinion headers to prevent
+            # false positives from body-text cross-references in multi-opinion
+            # cases (e.g., G.R. No. 133879 has 3 opinions citing each other).
+            overrides["re_separate_opinion"] = re.compile(
+                r'^([A-Z][A-Z\s,.\'\-]+?),\s*(?:C\.?\s*J\.?\s*|J\.?\s*),?\s*'
+                r'(?:concurring|dissenting|separate)\b'
+                r'.*[:\;]\s*$',
+                re.IGNORECASE
+            )
+            # OCR-tolerant party designations: handles pétitioner (accent),
+            # respondeni (OCR i-for-t), and similar single-char OCR errors.
+            overrides["re_parties_end"] = re.compile(
+                r'(?:respond.n.s?|p.titioners?|plaintiffs?|defendants?|appellants?|appellees?|'
+                r'accused-appellants?|intervenors?|oppositors?)\s*[.,;]*\s*$',
+                re.IGNORECASE
+            )
         _ERA_CONFIGS[era.name] = _build_baseline_config(era.name, **overrides)
 
 

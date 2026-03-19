@@ -30,12 +30,14 @@ Guidelines for instructions:
 - Include the "why" so Cline (DeepSeek) has context for trade-off decisions
 - Specify expected behavior and edge cases
 - Keep each instruction focused on one logical change — split large tasks into sequential steps
+- Write all instructions into TASKS.md
 
 ### Review workflow
 After Cline applies changes:
 1. Read the modified files to verify correctness
 2. Flag issues or request follow-up changes as new Cline instructions
 3. Confirm completion to the user when satisfied
+4. In TASKS.md, write a one-line summary of the task under "Completed Tasks" section and delete the full spec text of the task under "Active Tasks"
 
 ## Project Overview
 

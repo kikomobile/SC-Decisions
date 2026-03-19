@@ -57,6 +57,13 @@ class ScoreResult:
     fn: int
 
 
+def _truncate(text: str, max_len: int = 200) -> str:
+    """Truncate text for display, preserving start."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
 def compute_iou(a_start: int, a_end: int, b_start: int, b_end: int) -> float:
     """Intersection over Union for two character spans.
     
@@ -87,7 +94,7 @@ def match_spans(
     pred_anns: List[Annotation],
     iou_threshold: float,
     is_position_label: bool
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int, int, List[dict], List[dict], List[dict]]:
     """Greedy matching of spans between ground truth and predictions.
     
     For each GT annotation, find the best IoU prediction.
@@ -96,16 +103,18 @@ def match_spans(
     For position labels, any overlap (IoU > 0) counts as a match.
     For content labels, IoU >= threshold required.
     
-    Returns (TP, FP, FN).
+    Returns (TP, FP, FN, matched_details, missed_details, extra_details).
     """
     if not gt_anns and not pred_anns:
-        return 0, 0, 0
+        return 0, 0, 0, [], [], []
     
     # Sort by start_char for consistent matching
     gt_sorted = sorted(gt_anns, key=lambda a: a.start_char)
     pred_sorted = sorted(pred_anns, key=lambda a: a.start_char)
     
     matched_preds = set()
+    matched_gt = set()
+    matched_details = []
     tp = 0
     
     # For each GT annotation, find best matching prediction
@@ -134,28 +143,58 @@ def match_spans(
         
         if best_pred_idx >= 0:
             matched_preds.add(best_pred_idx)
+            matched_gt.add(gt_idx)
             tp += 1
+            # Record matched details
+            pred_ann = pred_sorted[best_pred_idx]
+            matched_details.append({
+                "gt_text": _truncate(gt_ann.text),
+                "pred_text": _truncate(pred_ann.text),
+                "start_char": gt_ann.start_char,
+                "end_char": gt_ann.end_char,
+                "iou": round(best_iou, 4)
+            })
+    
+    # Build missed_details for unmatched GT
+    missed_details = []
+    for gt_idx, gt_ann in enumerate(gt_sorted):
+        if gt_idx not in matched_gt:
+            missed_details.append({
+                "text": _truncate(gt_ann.text),
+                "start_char": gt_ann.start_char,
+                "end_char": gt_ann.end_char
+            })
+    
+    # Build extra_details for unmatched predictions
+    extra_details = []
+    for pred_idx, pred_ann in enumerate(pred_sorted):
+        if pred_idx not in matched_preds:
+            extra_details.append({
+                "text": _truncate(pred_ann.text),
+                "start_char": pred_ann.start_char,
+                "end_char": pred_ann.end_char
+            })
     
     fp = len(pred_sorted) - len(matched_preds)
     fn = len(gt_sorted) - tp
     
-    return tp, fp, fn
+    return tp, fp, fn, matched_details, missed_details, extra_details
 
 
 def match_grouped_spans(
     gt_anns: List[Annotation],
     pred_anns: List[Annotation],
     iou_threshold: float
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int, int, List[dict], List[dict], List[dict]]:
     """Match spans for grouped labels (case_number, parties).
     
-    First try matching by group index (gt group 0 → pred group 0).
+    First try matching by group index (gt group 0 -> pred group 0).
     If groups don't align, fall back to best-IoU matching.
     
-    Returns (TP, FP, FN).
+    Returns (TP, FP, FN, matched_details, missed_details, extra_details).
     """
     if not gt_anns and not pred_anns:
-        return 0, 0, 0
+        return 0, 0, 0, [], [], []
     
     # Group annotations by group index
     gt_by_group: Dict[Optional[int], List[Annotation]] = {}
@@ -169,61 +208,61 @@ def match_grouped_spans(
     
     # Try to match within each group
     matched_preds = set()
+    matched_gt_anns = set()  # Track matched GT annotations by id
+    matched_details = []
     tp = 0
     
-    # Create mapping from pred index to (group, idx_in_group)
+    # Create mapping from pred index to (group, idx_in_group, pred)
     pred_index_map = []
     for group, preds in pred_by_group.items():
         for idx, pred in enumerate(preds):
             pred_index_map.append((group, idx, pred))
     
-    # For each GT group
+    # Create a flat list of GT annotations with their indices for tracking
+    gt_flat = []
     for gt_group, gt_group_anns in gt_by_group.items():
-        # Get predictions for this group
-        pred_group_anns = pred_by_group.get(gt_group, [])
-        
-        # Match within group
         for gt_ann in gt_group_anns:
-            best_iou = 0.0
-            best_pred_idx = -1
-            
-            for pred_idx, (group, idx_in_group, pred_ann) in enumerate(pred_index_map):
-                if group != gt_group:
-                    continue
-                if pred_idx in matched_preds:
-                    continue
-                
-                iou = compute_iou(
-                    gt_ann.start_char, gt_ann.end_char,
-                    pred_ann.start_char, pred_ann.end_char
-                )
-                
-                if iou >= iou_threshold and iou > best_iou:
-                    best_iou = iou
-                    best_pred_idx = pred_idx
-            
-            if best_pred_idx >= 0:
-                matched_preds.add(best_pred_idx)
-                tp += 1
+            gt_flat.append((gt_group, gt_ann))
     
-    # If groups don't align well, fall back to global matching
-    # (some GT annotations may not have been matched due to group mismatch)
+    # For each GT annotation
+    for gt_idx, (gt_group, gt_ann) in enumerate(gt_flat):
+        best_iou = 0.0
+        best_pred_idx = -1
+        
+        for pred_idx, (group, idx_in_group, pred_ann) in enumerate(pred_index_map):
+            if group != gt_group:
+                continue
+            if pred_idx in matched_preds:
+                continue
+            
+            iou = compute_iou(
+                gt_ann.start_char, gt_ann.end_char,
+                pred_ann.start_char, pred_ann.end_char
+            )
+            
+            if iou >= iou_threshold and iou > best_iou:
+                best_iou = iou
+                best_pred_idx = pred_idx
+        
+        if best_pred_idx >= 0:
+            matched_preds.add(best_pred_idx)
+            matched_gt_anns.add(gt_idx)
+            tp += 1
+            # Record matched details
+            _, _, pred_ann = pred_index_map[best_pred_idx]
+            matched_details.append({
+                "gt_text": _truncate(gt_ann.text),
+                "pred_text": _truncate(pred_ann.text),
+                "start_char": gt_ann.start_char,
+                "end_char": gt_ann.end_char,
+                "iou": round(best_iou, 4)
+            })
+    
+    # Collect unmatched GT for fallback matching
     unmatched_gt = []
-    for gt_group, gt_group_anns in gt_by_group.items():
-        for gt_ann in gt_group_anns:
-            # Check if this GT was matched
-            matched = False
-            for pred_idx in matched_preds:
-                _, _, pred_ann = pred_index_map[pred_idx]
-                iou = compute_iou(
-                    gt_ann.start_char, gt_ann.end_char,
-                    pred_ann.start_char, pred_ann.end_char
-                )
-                if iou >= iou_threshold:
-                    matched = True
-                    break
-            if not matched:
-                unmatched_gt.append(gt_ann)
+    for gt_idx, (gt_group, gt_ann) in enumerate(gt_flat):
+        if gt_idx not in matched_gt_anns:
+            unmatched_gt.append(gt_ann)
     
     # Try to match unmatched GT with unmatched predictions
     unmatched_preds = []
@@ -231,8 +270,8 @@ def match_grouped_spans(
         if pred_idx not in matched_preds:
             unmatched_preds.append(pred_ann)
     
-    # Use regular matching for remaining
-    additional_tp, additional_fp, additional_fn = match_spans(
+    # Use regular matching for remaining - now returns 6 values
+    additional_tp, additional_fp, additional_fn, add_matched, add_missed, add_extra = match_spans(
         unmatched_gt, unmatched_preds, iou_threshold, is_position_label=False
     )
     
@@ -240,7 +279,12 @@ def match_grouped_spans(
     fp = len(pred_index_map) - len(matched_preds) - additional_tp  # remaining unmatched preds
     fn = additional_fn
     
-    return tp, fp, fn
+    # Merge detail lists from fallback matching
+    matched_details.extend(add_matched)
+    missed_details = add_missed  # All missed come from fallback (unmatched GT)
+    extra_details = add_extra    # All extra come from fallback (unmatched preds)
+    
+    return tp, fp, fn, matched_details, missed_details, extra_details
 
 
 def load_json_file(filepath: str) -> Dict[str, Any]:
@@ -430,7 +474,10 @@ def score_volume(
         per_case_results[case_id] = {
             "matched_labels": [],
             "missed_labels": [],
-            "extra_labels": []
+            "extra_labels": [],
+            "missed_annotations": [],
+            "extra_annotations": [],
+            "matched_annotations": []
         }
         
         # Group annotations by label
@@ -455,10 +502,10 @@ def score_volume(
             
             # Choose appropriate matcher
             if label in GROUPED_LABELS:
-                tp, fp, fn = match_grouped_spans(gt_anns, pred_anns, iou_threshold)
+                tp, fp, fn, matched_det, missed_det, extra_det = match_grouped_spans(gt_anns, pred_anns, iou_threshold)
             else:
                 is_position = label in POSITION_LABELS
-                tp, fp, fn = match_spans(gt_anns, pred_anns, iou_threshold, is_position)
+                tp, fp, fn, matched_det, missed_det, extra_det = match_spans(gt_anns, pred_anns, iou_threshold, is_position)
             
             # Update per-label results
             per_label_results[label]["tp"] += tp
@@ -472,6 +519,14 @@ def score_volume(
                 per_case_results[case_id]["missed_labels"].append(label)
             if fp > 0:
                 per_case_results[case_id]["extra_labels"].append(label)
+            
+            # Add annotation details to per-case results
+            for d in matched_det:
+                per_case_results[case_id].setdefault("matched_annotations", []).append({"label": label, **d})
+            for d in missed_det:
+                per_case_results[case_id].setdefault("missed_annotations", []).append({"label": label, **d})
+            for d in extra_det:
+                per_case_results[case_id].setdefault("extra_annotations", []).append({"label": label, **d})
     
     # Handle unmatched GT cases (all-FN)
     matched_gt_ids = {gt_case.case_id for gt_case, _ in matched_pairs}
@@ -482,7 +537,10 @@ def score_volume(
             per_case_results[case_id] = {
                 "matched_labels": [],
                 "missed_labels": [],
-                "extra_labels": []
+                "extra_labels": [],
+                "missed_annotations": [],
+                "extra_annotations": [],
+                "matched_annotations": []
             }
             
             # Count all GT annotations as FN
@@ -490,6 +548,13 @@ def score_volume(
                 label = ann.label
                 per_label_results[label]["fn"] += 1
                 per_case_results[case_id]["missed_labels"].append(label)
+                # Add missed annotation details
+                per_case_results[case_id]["missed_annotations"].append({
+                    "label": label,
+                    "text": _truncate(ann.text),
+                    "start_char": ann.start_char,
+                    "end_char": ann.end_char
+                })
     
     # Handle unmatched predicted cases (all-FP)
     matched_pred_ids = {pred_case.case_id for _, pred_case in matched_pairs if pred_case}
@@ -501,7 +566,10 @@ def score_volume(
                 per_case_results[case_id] = {
                     "matched_labels": [],
                     "missed_labels": [],
-                    "extra_labels": []
+                    "extra_labels": [],
+                    "missed_annotations": [],
+                    "extra_annotations": [],
+                    "matched_annotations": []
                 }
             
             # Count all predicted annotations as FP
@@ -509,6 +577,13 @@ def score_volume(
                 label = ann.label
                 per_label_results[label]["fp"] += 1
                 per_case_results[case_id]["extra_labels"].append(label)
+                # Add extra annotation details
+                per_case_results[case_id]["extra_annotations"].append({
+                    "label": label,
+                    "text": _truncate(ann.text),
+                    "start_char": ann.start_char,
+                    "end_char": ann.end_char
+                })
     
     # Compute per-label metrics
     final_per_label = {}
@@ -600,9 +675,31 @@ def format_results_table(results: Dict[str, Any]) -> str:
     if problematic:
         lines.append("Problematic cases:")
         for case_id, case_info in problematic[:10]:  # Show first 10
-            missed = len(case_info["missed_labels"])
-            extra = len(case_info["extra_labels"])
-            lines.append(f"  {case_id}: {missed} missed, {extra} extra labels")
+            lines.append(f"  {case_id}:")
+            
+            # Show missed annotations
+            missed_anns = case_info.get("missed_annotations", [])
+            if missed_anns:
+                lines.append(f"    MISSED ({len(missed_anns)}):")
+                for ann in missed_anns:
+                    lines.append(f"      [{ann['label']}] \"{ann['text']}\" (char {ann['start_char']}-{ann['end_char']})")
+            
+            # Show extra annotations
+            extra_anns = case_info.get("extra_annotations", [])
+            if extra_anns:
+                lines.append(f"    EXTRA ({len(extra_anns)}):")
+                for ann in extra_anns:
+                    lines.append(f"      [{ann['label']}] \"{ann['text']}\" (char {ann['start_char']}-{ann['end_char']})")
+            
+            # Show matched annotations with low IoU (IoU < 0.95)
+            matched_anns = case_info.get("matched_annotations", [])
+            low_iou_anns = [ann for ann in matched_anns if ann.get("iou", 1.0) < 0.95]
+            if low_iou_anns:
+                lines.append(f"    MATCHED with low IoU (showing IoU < 0.95 only):")
+                for ann in low_iou_anns:
+                    lines.append(f"      [{ann['label']}] IoU={ann['iou']} gt=\"{ann['gt_text']}\" vs pred=\"{ann['pred_text']}\"")
+            
+            lines.append("")  # Add blank line between cases
         
         if len(problematic) > 10:
             lines.append(f"  ... and {len(problematic) - 10} more")

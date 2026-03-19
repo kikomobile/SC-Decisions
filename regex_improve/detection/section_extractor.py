@@ -190,6 +190,22 @@ class SectionExtractor:
             if last_bracket_idx >= 0:
                 # Find start of parties (line after last bracket)
                 parties_start_idx = last_bracket_idx + 1
+
+                # ERA-2: skip votes-continuation lines from previous case
+                # (e.g., Vol 421 case 5 where case 4's votes wrap past bracket)
+                if self.config.votes_extend_past_boundary:
+                    justices_skip = _get_known_justices()
+                    while parties_start_idx < len(lines):
+                        _, skip_text = lines[parties_start_idx]
+                        if not skip_text.strip():
+                            parties_start_idx += 1
+                            continue
+                        if self.config.re_votes_content.search(skip_text) and \
+                           _line_has_justice_surname(skip_text, justices_skip):
+                            parties_start_idx += 1
+                            continue
+                        break
+
                 if parties_start_idx < len(lines):
                     # FIX-5: Smart parties extraction with footnote protection
                     # Parties blocks end with a legal designation like "respondents.", "petitioner.", etc.
@@ -268,7 +284,11 @@ class SectionExtractor:
                                 group=0  # TODO: handle consolidated cases with group assignment
                             )
                             extracted_case.annotations.append(parties_ann)
-        
+
+                            # ERA-2: detect pre-header parties (parties before division/bracket)
+                            if parties_text.lstrip().upper().startswith('VS'):
+                                self._detect_pre_header_parties(extracted_case, boundary)
+
         # Process remaining sections sequentially
         # We'll scan through lines and extract sections as we encounter them
         current_idx = 0
@@ -604,7 +624,7 @@ class SectionExtractor:
                         # Collect votes with strict termination conditions
                         consecutive_blank_lines = 0
                         non_blank_votes_count = 0
-                        max_non_blank_lines = 15  # Votes are never longer than ~10 lines
+                        max_non_blank_lines = self.config.votes_max_non_blank_lines
                         in_votes_section = False
                         votes_end_idx = votes_start_idx
                         separate_opinion_idx = None  # Track where RE_SEPARATE_OPINION was found
@@ -626,6 +646,18 @@ class SectionExtractor:
                             if not text.strip():
                                 consecutive_blank_lines += 1
                                 if consecutive_blank_lines >= 2 and in_votes_section:
+                                    # ERA-2: look ahead past blank gap for more justice names
+                                    if self.config.votes_continuation_lookahead > 0:
+                                        found_more = False
+                                        justices_la = _get_known_justices()
+                                        for look_i in range(i + 1, min(i + 1 + self.config.votes_continuation_lookahead, len(lines))):
+                                            look_text = lines[look_i][1]
+                                            if look_text.strip() and _line_has_justice_surname(look_text, justices_la):
+                                                found_more = True
+                                                break
+                                        if found_more:
+                                            consecutive_blank_lines = 0
+                                            continue
                                     # Go back to last non-blank line
                                     while votes_end_idx > votes_start_idx and not lines[votes_end_idx-1][1].strip():
                                         votes_end_idx -= 1
@@ -648,8 +680,18 @@ class SectionExtractor:
                                 # Skip footnote lines
                                 if self.config.re_footnote_start.match(text):
                                     if in_votes_section:
-                                        # In votes + footnote pattern + no justice surname = stop
                                         if not has_justice:
+                                            # ERA-2: look ahead past footnotes for more justice names
+                                            if self.config.votes_continuation_lookahead > 0:
+                                                found_more = False
+                                                justices_la = _get_known_justices()
+                                                for look_i in range(i + 1, min(i + 1 + self.config.votes_continuation_lookahead, len(lines))):
+                                                    look_text = lines[look_i][1]
+                                                    if look_text.strip() and _line_has_justice_surname(look_text, justices_la):
+                                                        found_more = True
+                                                        break
+                                                if found_more:
+                                                    continue  # skip footnote, more votes ahead
                                             break
                                         # Has justice surname despite footnote-like start - keep
                                     else:
@@ -692,7 +734,12 @@ class SectionExtractor:
                         # Remove trailing blank lines from votes_lines
                         while votes_lines and not votes_lines[-1][1].strip():
                             votes_lines.pop()
-                        
+
+                        # ERA-2: extend votes past case boundary if incomplete
+                        if self.config.votes_extend_past_boundary and votes_lines:
+                            votes_lines = self._try_extend_votes_past_boundary(
+                                votes_lines, boundary)
+
                         # Create votes annotation if we found any votes lines
                         if votes_lines:
                             start_line_num = votes_lines[0][0]
@@ -721,10 +768,13 @@ class SectionExtractor:
                             opinion_scan_start = votes_end_idx if votes_end_idx > votes_start_idx else votes_start_idx
 
                         # Collect all opinion start indices
+                        # Note: do NOT terminate at re_case_bracket — case citations
+                        # like "[G.R. No. 12345. Jan 1, 2000]" are common in opinion bodies
+                        # and would cause early termination (e.g. Estrada case, Vol 421).
                         opinion_starts = []
                         for scan_idx in range(opinion_scan_start, len(lines)):
                             scan_line_num, scan_text = lines[scan_idx]
-                            if self.config.re_division.match(scan_text) or self.config.re_case_bracket.match(scan_text):
+                            if self.config.re_division.match(scan_text):
                                 break
                             if self.config.re_separate_opinion.match(scan_text) or RE_SEP_OPINION_HEADER.match(scan_text):
                                 opinion_starts.append(scan_idx)
@@ -767,7 +817,7 @@ class SectionExtractor:
                                 last_nonblank_text = op_start_text
                                 for search_idx in range(op_start_idx + 1, end_search_limit):
                                     s_line, s_text = lines[search_idx]
-                                    if self.config.re_division.match(s_text) or self.config.re_case_bracket.match(s_text):
+                                    if self.config.re_division.match(s_text):
                                         break
                                     if s_text.strip():
                                         last_nonblank_line = s_line
@@ -813,7 +863,125 @@ class SectionExtractor:
                             extracted_case.annotations.append(end_of_case_ann)
         
         return extracted_case
-    
+
+    def _try_extend_votes_past_boundary(self, votes_lines, boundary):
+        """Extend votes past case boundary when they wrap around next case header.
+
+        Handles ERA-2 formatting where the votes of one case are split by the
+        next case's division header and bracket, e.g. G.R. Nos. 132875-76 in
+        Vol 421 where "SECOND DIVISION" and "[G.R. No. 132916...]" appear in
+        the middle of the votes block.
+        """
+        if not votes_lines:
+            return votes_lines
+
+        last_text = votes_lines[-1][1].rstrip()
+        has_termination = bool(re.search(r'(?:concur|dissent)', last_text, re.IGNORECASE))
+        ends_incomplete = last_text.endswith(',') or last_text.lower().rstrip().endswith(' and')
+
+        if has_termination and not ends_incomplete:
+            return votes_lines  # votes are already complete
+
+        justices = _get_known_justices()
+        max_extension = 15
+
+        for line_num in range(boundary.end_line + 1,
+                              min(boundary.end_line + max_extension + 1,
+                                  self.loader.total_lines + 1)):
+            text = self.loader.get_line_text(line_num)
+            if self.preprocessor.is_noise(line_num):
+                continue
+            if not text.strip():
+                continue
+            # Skip embedded division headers and brackets from next case
+            if self.config.re_division.match(text) or self.config.re_case_bracket.match(text):
+                continue
+            if _line_has_justice_surname(text, justices):
+                votes_lines.append((line_num, text))
+                if re.search(r'(?:concur|dissent)', text, re.IGNORECASE):
+                    break  # found proper termination
+            else:
+                break  # non-justice line = end of extension
+
+        return votes_lines
+
+    def _detect_pre_header_parties(self, case, boundary):
+        """Fix cases where parties appear before the division/bracket header.
+
+        Pattern (e.g. Estrada vs. Sandiganbayan, Vol 421):
+            JOSEPH EJERCITO ESTRADA, pétitioner,  <- pre-header parties
+            Estrada vs. Sandiganbayan              <- noise
+            EN BANC                                <- division
+            [G.R. No. 148560. Nov 19, 2001]        <- bracket
+            VS.                                    <- post-bracket parties
+            SANDIGANBAYAN..., respondents.          <- parties end
+        """
+        party_desig = re.compile(
+            r'(?:respond.n.s?|p.titioners?|plaintiffs?|defendants?|'
+            r'appellants?|appellees?|accused)\s*[.,;]*\s*$',
+            re.IGNORECASE
+        )
+
+        pre_lines = []
+        found_designation = False
+        consecutive_blanks = 0
+
+        for line_num in range(boundary.start_line - 1,
+                              max(boundary.start_line - 10, 0), -1):
+            if line_num < 1:
+                break
+            text = self.loader.get_line_text(line_num)
+            if self.preprocessor.is_noise(line_num):
+                continue
+            if not text.strip():
+                consecutive_blanks += 1
+                if consecutive_blanks >= 3 and pre_lines:
+                    break  # large gap = definitely past the pre-header
+                continue
+            consecutive_blanks = 0
+            # Stop at previous-case signals
+            if self.config.re_so_ordered.match(text):
+                break
+            if self.config.re_votes_content.search(text) and \
+               _line_has_justice_surname(text, _get_known_justices()):
+                break
+            if party_desig.search(text):
+                found_designation = True
+            pre_lines.insert(0, (line_num, text))
+
+        if not found_designation or not pre_lines:
+            return
+
+        # Extend parties annotation backwards to include pre-header text
+        new_start_line = pre_lines[0][0]
+        new_start_char = self.loader.line_col_to_char(new_start_line, 0)
+
+        for ann in case.annotations:
+            if ann.label == "parties":
+                ann.text = self.loader.text[new_start_char:ann.end_char]
+                ann.start_line = new_start_line
+                ann.start_char = new_start_char
+                ann.start_page = self.loader.get_page(new_start_line)
+                break
+
+        # Update start_of_case to the pre-header line
+        first_text = pre_lines[0][1].strip()
+        line_text = self.loader.get_line_text(new_start_line)
+        pos = line_text.find(first_text[:20])
+        first_start_char = self.loader.line_col_to_char(
+            new_start_line, max(pos, 0))
+
+        for ann in case.annotations:
+            if ann.label == "start_of_case":
+                ann.text = first_text
+                ann.start_line = new_start_line
+                ann.end_line = new_start_line
+                ann.start_char = first_start_char
+                ann.end_char = first_start_char + len(first_text)
+                ann.start_page = self.loader.get_page(new_start_line)
+                ann.end_page = ann.start_page
+                break
+
     def _make_annotation(self, label: str, text: str,
                         start_line: int, end_line: int,
                         start_char: int = None, end_char: int = None,
