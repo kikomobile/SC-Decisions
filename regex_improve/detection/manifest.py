@@ -195,29 +195,37 @@ def merge_annotations(
         else:
             prev_regex.append(ann)
 
-    # Build a set of (label, group) keys present in current annotations
-    current_keys = set()
-    for ann in current_anns:
-        key = (ann.get("label"), ann.get("group"))
-        current_keys.add(key)
-
-    # Start with all current annotations (they replace previous regex)
-    merged = list(current_anns)
-
-    # Add back previous LLM annotations that aren't covered by current
+    # Build a set of (label, group) keys for previous LLM annotations
+    llm_keys = set()
     for ann in prev_llm:
         key = (ann.get("label"), ann.get("group"))
-        if key not in current_keys:
-            merged.append(ann)
-            current_keys.add(key)
+        llm_keys.add(key)
+
+    # Start with current annotations, but replace with LLM version where it exists
+    # (LLM results are more expensive/accurate — preserve them over regex)
+    merged = []
+    merged_keys = set()
+    for ann in current_anns:
+        key = (ann.get("label"), ann.get("group"))
+        if key in llm_keys:
+            # LLM version exists for this label — skip the regex version
+            continue
+        merged.append(ann)
+        merged_keys.add(key)
+
+    # Add all previous LLM annotations
+    for ann in prev_llm:
+        key = (ann.get("label"), ann.get("group"))
+        merged.append(ann)
+        merged_keys.add(key)
 
     # Add back previous regex annotations for labels missing from current
     # (preserve coverage for labels that current regex missed)
     for ann in prev_regex:
         key = (ann.get("label"), ann.get("group"))
-        if key not in current_keys:
+        if key not in merged_keys:
             merged.append(ann)
-            current_keys.add(key)
+            merged_keys.add(key)
 
     return merged
 

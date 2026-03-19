@@ -34,3 +34,6 @@ exports/
 .DS_Store
 Thumbs.db
 .aider*
+
+# Pipeline UI settings (user-specific)
+.pipeline_ui_settings.json

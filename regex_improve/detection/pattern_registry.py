@@ -147,12 +147,41 @@ def _build_baseline_config(era_name: str, **overrides) -> EraConfig:
         r'R\s+E\s+S\s+O\s+L\s+U\s+T\s+I\s+O\s+N)\s*$'
     )
     re_ponente = re.compile(
-        r'^([A-Z][A-Z\s,.\'\-]+?),\s*(?:C\.?\s*J\.?\s*|J\.?\s*)[,:;]+\s*$'
+        r'^\s*[\W]*'                                                    # optional leading OCR garbage
+        r'([A-Z\u00C0-\u024F][A-Z\u00C0-\u024F\s,.\'\-]+?)'          # name (diacritics allowed)
+        r',?\s*'
+        r'(?:Actg\.\s*|Acting\s+)?'                                     # optional Acting/Actg.
+        r'(?:'
+            r'C[\s./)]*J[\s./)]*'                                       # C.J. variants
+            r'|J[\s./)]*'                                               # J. variants
+            r'|[CVJ/\u00C0-\u024F][A-Za-z\u00C0-\u024F./)]*'          # OCR-mangled suffixes
+        r')'
+        r':\s*'                                                         # REQUIRED colon
+        r'[./)!*\u201c\u201d\u2018\u2019\u00c2\x22\':]*'             # trailing garbage
+        r'\s*$'
     )
     re_per_curiam = re.compile(r'^PER\s+CURIAM\s*[,:;]*\s*$', re.IGNORECASE)
-    re_so_ordered = re.compile(r'^SO\s*ORDERED\s*[.,;]?\s*$', re.IGNORECASE)
+    re_so_ordered = re.compile(
+        r'^\s*[\u201c\u201d\u2018\u2019\u00ab\u00bb"\']*\s*'  # optional leading smart/straight quotes
+        r'(?:IT\s+IS\s+)?'                                      # optional "IT IS" prefix
+        r'SO\s*ORDERED'
+        r'\s*[.,;:!]*'                                           # optional punctuation
+        r'\s*[\u201c\u201d\u2018\u2019\u00ab\u00bb"\']*'        # optional trailing smart/straight quotes
+        r'\s*\d{0,3}'                                            # optional footnote number (1-3 digits)
+        r'\s*$',
+        re.IGNORECASE
+    )
     re_separate_opinion = re.compile(
-        r'^([A-Z][A-Z\s,.\'\-]+?),\s*(?:C\.?\s*J\.?\s*|J\.?\s*),?\s*'
+        r'^\s*[\W]*'
+        r'([A-Z\u00C0-\u024F][A-Z\u00C0-\u024F\s,.\'\-]+?)'          # name (diacritics allowed)
+        r',\s*'
+        r'(?:Actg\.\s*|Acting\s+)?'
+        r'(?:'
+            r'C[\s./)]*J[\s./)]*'
+            r'|J[\s./)]*'
+            r'|[CVJ/\u00C0-\u024F][A-Za-z\u00C0-\u024F./)]*'
+        r')'
+        r',?\s*'
         r'(?:concurring|dissenting|separate)\b',
         re.IGNORECASE
     )

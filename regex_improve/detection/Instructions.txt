@@ -21,6 +21,9 @@ Tested on Volume 226 (72 cases, 94.5% F1 against human-annotated ground truth).
     LLM features are optional. The pipeline works without an API key
     (regex-only mode, --skip-llm).
 
+    For the web-based control panel (Section 14):
+        pip install streamlit>=1.29.0
+
 
 2. SINGLE VOLUME
 ----------------
@@ -47,6 +50,14 @@ Tested on Volume 226 (72 cases, 94.5% F1 against human-annotated ground truth).
         python -m detection ../downloads/Volume_226.txt \
             --score annotation_exports/ground_truth_20260309_144413.json --json
 
+    Extract CSV after processing:
+        python -m detection ../downloads/Volume_226.txt --skip-llm \
+            --csv ../predictions_extract.csv \
+            -o ../downloads/predictions/Volume_226_predicted.json
+
+    In single mode, --csv extracts from the output file's parent directory
+    (picks up all *_predicted.json files in that directory).
+
 
 3. BATCH PROCESSING
 -------------------
@@ -61,6 +72,14 @@ Tested on Volume 226 (72 cases, 94.5% F1 against human-annotated ground truth).
 
     Full corpus (all 860 volumes, 121-961):
         python -m detection ../downloads --range 121-961 --skip-llm
+
+    Batch with CSV extraction (single command):
+        python -m detection ../downloads --range 226-500 --skip-llm \
+            --csv ../predictions_extract.csv
+
+    Disable auto-archiving of previous CSV:
+        python -m detection ../downloads --range 226-500 --skip-llm \
+            --csv ../predictions_extract.csv --no-archive
 
     Note: Batch mode shares a single LLM budget across all volumes.
 
@@ -159,6 +178,27 @@ to build ground truth and catch era-boundary issues.
         - Initial exploration of a new volume range
         - Phases where regex accuracy is already high
         - When you want to see baseline regex performance before LLM
+
+
+--csv [PATH] (optional CSV output path, default: predictions_extract.csv)
+
+    Extract a predictions CSV after pipeline processing. Works in both
+    single and batch mode. Auto-archives the previous CSV before overwriting
+    (see Section 13).
+
+    --csv                           Uses default path: predictions_extract.csv
+    --csv ../my_output.csv          Uses custom path
+    (omit flag entirely)            No CSV extraction
+
+    In batch mode, reads *_predicted.json from the output directory.
+    In single mode, reads from the output file's parent directory.
+
+
+--no-archive (flag, no value)
+
+    Disable auto-archiving when using --csv. By default, the previous CSV
+    is moved to csv_archive/ with a timestamp before the new one is written.
+    Use this flag to overwrite the CSV in-place.
 
 
 --iou (IoU threshold for scorer, default: 0.8)
@@ -532,21 +572,204 @@ Merge behavior:
     - New labels from current regex are added
     - Labels missing from current but present in previous are kept
 
-The --force flag:
-    python -m detection ../downloads/Volume_226.txt --force
-
-    Bypasses the manifest cache entirely. The volume is fully reprocessed
-    from scratch. Previous LLM annotations are NOT preserved.
-
 Flag interaction matrix:
 
-    --force  --skip-llm  Behavior
-    no       no          Re-run regex, keep cached LLM, run LLM for new low-confidence
-    no       yes         Re-run regex, keep cached LLM, no new LLM calls
-    yes      no          Full pipeline from scratch, run LLM for low-confidence
-    yes      yes         Full pipeline from scratch, no LLM
+    --force  --skip-llm  Manifest bypass  Regex re-run  Preserve cached LLM  New LLM calls
+    no       no          no (stale only)  if stale      yes                  yes, filtered
+    no       yes         yes              always        yes                  no
+    yes      no          yes              always        yes, then overwritten yes, all low-conf
+    yes      yes         yes              always        yes                  no
+
+    --skip-llm always bypasses the manifest and re-runs regex (regex is free).
+    --force additionally re-runs LLM on labels that already have cached LLM results.
+    Without either flag, the manifest governs: only stale volumes are reprocessed.
 
 Mtime auto-invalidation:
     If the source .txt file has been modified since the last run (e.g.,
     after patching blank pages), the pipeline automatically reprocesses
     the volume even without --force.
+
+
+13. CSV EXTRACTION & AUTO-ARCHIVING
+-------------------------------------
+
+The CSV extractor flattens *_predicted.json files into one CSV row per case,
+with fuzzy justice name resolution via justices.json.
+
+Module: detection/csv_extractor.py
+Standalone wrapper: extract_predictions_csv.py (repo root)
+
+Standalone usage (from repo root):
+
+    python -B extract_predictions_csv.py
+    python -B extract_predictions_csv.py --output my_output.csv
+    python -B extract_predictions_csv.py --no-archive
+
+    Options:
+        --input-dir     Directory with *_predicted.json (default: downloads/predictions)
+        --output        Output CSV path (default: predictions_extract.csv)
+        --justices      Path to justices.json (default: regex_improve/detection/justices.json)
+        --threshold     Fuzzy match threshold 0.0-1.0 (default: 0.75)
+        --no-archive    Overwrite previous CSV without archiving
+
+Integrated usage (via --csv flag, from regex_improve/):
+
+    python -B -m detection ../downloads --range 226-500 --skip-llm \
+        --csv ../predictions_extract.csv
+
+    The --csv flag runs CSV extraction automatically after pipeline processing.
+    See Sections 2, 3, and 5 for details.
+
+CSV columns:
+
+    volume, case_number, date, ponente, votes_raw,
+    concurring, dissenting, no_part, on_leave,
+    other_votes, unmatched_tokens, confidence
+
+    votes_raw: raw votes text from the prediction
+    concurring/dissenting/no_part/on_leave: semicolon-separated justice names
+    other_votes: votes that are both concurring and dissenting (mixed clauses)
+    unmatched_tokens: tokens that could not be matched to any known justice
+
+Auto-archiving:
+
+    By default, the extractor archives the previous CSV before writing a new
+    one. The archive directory is csv_archive/ next to the output CSV.
+
+    Archive filename format:
+        {stem}_{YYYYMMDD_HHMMSS}{suffix}
+        e.g., predictions_extract_20260319_143022.csv
+
+    The timestamp comes from the file's modification time (st_mtime), not
+    the current time, so the archive name tells you when the CSV was
+    originally generated.
+
+    If an archive with the same timestamp already exists (same second),
+    a counter suffix is appended: predictions_extract_20260319_143022_1.csv
+
+    To disable archiving, use --no-archive.
+
+Ghost row filtering:
+
+    Cases where the boundary FSM detected a start but no case_number was
+    extracted are automatically skipped (ghost rows). These are typically
+    false boundary detections.
+
+Justice matching:
+
+    The JusticeMatcher class resolves noisy OCR tokens to canonical justice
+    names from justices.json. It uses:
+
+        1. Exact match (full name or base name without Jr./Sr.)
+        2. Last-token match for unambiguous compound names (e.g., "Morales" → "Carpio Morales")
+        3. Alias resolution (e.g., "Aranal-Sereno" → "Sereno")
+        4. Fuzzy match via difflib.SequenceMatcher (threshold default: 0.75)
+
+    Vote parsing splits raw votes text into clauses, classifies each as
+    concurring/dissenting/no_part/on_leave/other, then extracts justice
+    names from each clause using greedy pair-then-single matching.
+
+Validation scripts (from repo root):
+
+    python -B validation/check_headlines.py before.csv after.csv
+    python -B validation/check_overflow.py after.csv
+    python -B validation/check_ponente_breakdown.py before.csv after.csv
+    python -B validation/check_votes_by_era.py before.csv after.csv
+
+    See validation.md for detailed descriptions of each check.
+
+
+14. PIPELINE CONTROL PANEL (Streamlit UI)
+-------------------------------------------
+
+The pipeline has a web-based control panel that replaces the CLI for
+interactive use. It provides the same functionality as the CLI with a
+graphical interface for configuring options, viewing live output, and
+running validation checks.
+
+Installation:
+
+    pip install streamlit>=1.29.0
+
+Launch (from repo root):
+
+    streamlit run pipeline_ui.py
+
+    Opens in browser at http://localhost:8501.
+
+Architecture:
+
+    pipeline_ui.py    — Streamlit app (tabs, sidebar, live log display)
+    ui_helpers.py     — Non-UI helpers (settings, subprocess runner,
+                        command builders, validation runners)
+
+    The UI runs the same pipeline commands as the CLI via subprocess.
+    All paths are resolved to absolute before execution.
+
+Sidebar — Global Settings:
+
+    Volume directory    — Input directory (default: downloads)
+    Output directory    — Output directory (default: downloads/predictions)
+    Skip LLM           — Toggle (default: on)
+    Force reprocess     — Toggle (default: off)
+    LLM Budget ($)      — Number input (default: 5.00)
+    Confidence threshold — Slider 0.0-1.0 (default: 0.70)
+    Save Settings       — Persists all settings to .pipeline_ui_settings.json
+
+    Settings persist between sessions. The settings file is gitignored
+    (user-specific paths).
+
+Tab 1 — Single Volume:
+
+    Select a volume from the auto-populated dropdown (scans Volume_*.txt
+    files in the volume directory), or enter a path manually.
+
+    Output path is auto-computed: <output_dir>/<stem>_predicted.json
+
+    Optional ground truth path for scoring after extraction.
+
+    Click "Run Pipeline" to start. Live log output streams in real time.
+    Summary metrics (total cases, high/low confidence, OCR corrections)
+    display after completion.
+
+    "Open Output Folder" opens the output directory in Windows Explorer.
+
+Tab 2 — Batch Processing:
+
+    Set the volume range (start and end, min 121, max 999).
+    Uses input/output directories from the sidebar.
+
+    Click "Run Batch" to start. Same live log streaming and summary
+    metrics as single mode.
+
+Tab 3 — CSV Extraction:
+
+    Configure:
+        - Predictions directory (input JSONs)
+        - Output CSV path
+        - Justices JSON path
+        - Fuzzy match threshold slider
+
+    Click "Extract CSV" to run the extractor (same as Section 13).
+
+    Validation section below the CSV extraction:
+        - Set baseline CSV (before) and latest CSV (after)
+        - Click "Run Validation" to execute all 4 validation scripts:
+            check_headlines, check_overflow, check_ponente_breakdown,
+            check_votes_by_era
+        - Results appear in collapsible expanders
+
+Live log display:
+
+    All pipeline runs stream output in real time via a background thread.
+    The display shows the last 200 lines to prevent browser slowdown on
+    large batch runs. Full output is captured in session state.
+
+    The -u flag (unbuffered Python) is used on all subprocess calls to
+    ensure real-time output on Windows.
+
+Settings persistence:
+
+    Settings are stored in .pipeline_ui_settings.json (repo root, gitignored).
+    Atomic writes (temp file + os.replace) prevent corruption.
+    Missing keys are filled from defaults on load.

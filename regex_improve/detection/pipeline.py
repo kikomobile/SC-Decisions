@@ -95,7 +95,7 @@ def process_volume(
     manifest = {}
     if output_dir:
         manifest = load_manifest(output_dir)
-        needs_reprocess, reason = should_reprocess(manifest, volume_name, volume_path, force)
+        needs_reprocess, reason = should_reprocess(manifest, volume_name, volume_path, force or skip_llm)
         if not needs_reprocess:
             logger.info(f"Volume {volume_name} is up to date, skipping ({reason})")
             # Return a cached result from previous predictions
@@ -237,7 +237,9 @@ def process_volume(
     logger.info(f"Applied {len(all_corrections)} OCR corrections")
 
     # Step 4b: Merge with previous predictions (preserve cached LLM results)
-    if output_dir and not force:
+    # Always merge when previous predictions exist — --force only bypasses the
+    # manifest skip check, it does NOT discard expensive cached LLM annotations.
+    if output_dir:
         entry = get_volume_entry(manifest, volume_name)
         if entry and entry.get("prediction_file"):
             prev_data = load_previous_predictions(output_dir, entry["prediction_file"])

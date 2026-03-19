@@ -51,6 +51,34 @@ def _line_has_justice_surname(text, justices):
     return False
 
 
+_RE_NUMBERED_ITEM = re.compile(r'^\d+[.)\s]')
+_RE_ALLCAPS_HEADER = re.compile(r'^[A-Z][A-Z\s&,]{5,}$')
+
+def _is_non_votes_content(text: str) -> bool:
+    """Detect lines that are clearly NOT votes content.
+
+    Returns True for: numbered list items (annex entries), all-caps headers
+    without justice context, and paragraph-start patterns.
+    """
+    if not text:
+        return False
+    # Numbered list items: "1.", "2)", "16 Art." — annex entries, footnotes
+    if _RE_NUMBERED_ITEM.match(text):
+        return True
+    # All-caps headers without votes keywords: "NAME OF PLANTERS & HEIRS", "ADDRESS"
+    if _RE_ALLCAPS_HEADER.match(text):
+        text_lower = text.lower()
+        if not any(kw in text_lower for kw in ('concur', 'dissent', 'opinion', 'leave', 'part')):
+            return True
+    # Lines starting with article/section references (typical of footnote text)
+    if re.match(r'^(?:Art\.|Sec\.|Section|Article|See|Cf\.)\s', text):
+        return True
+    # Annex/appendix headers (e.g., "Annex «A» of Decision")
+    if re.match(r'^Annex\b', text, re.IGNORECASE):
+        return True
+    return False
+
+
 @dataclass
 class ExtractedCase:
     case_id: str
@@ -438,9 +466,9 @@ class SectionExtractor:
                 )
                 extracted_case.annotations.append(doc_type_ann)
                 
-                # Look for ponente in next 1-3 lines
+                # Look for ponente in next 1-5 lines
                 ponente_found = False
-                for offset in range(1, 4):
+                for offset in range(1, 6):
                     if current_idx + offset >= len(lines):
                         break
                     next_line_num, next_text = lines[current_idx + offset]
@@ -475,6 +503,22 @@ class SectionExtractor:
                         ponente_found = True
                         current_idx += offset
                         break
+                
+                # Fallback: check if ponente is embedded in the doc_type line itself
+                # e.g., "RESOLUTION                    PANGANIBAN, J.:"
+                if not ponente_found:
+                    inline_match = self.config.re_ponente.search(text)
+                    if inline_match:
+                        ponente_text = inline_match.group(1).strip()
+                        ponente_ann = self._make_annotation(
+                            label="ponente",
+                            text=ponente_text,
+                            start_line=line_num,
+                            end_line=line_num,
+                            group=None
+                        )
+                        extracted_case.annotations.append(ponente_ann)
+                        ponente_found = True
                 
                 # If ponente not found, skip ahead
                 if not ponente_found:
@@ -698,37 +742,40 @@ class SectionExtractor:
                                         continue
                                 
                                 # Determine if line belongs in votes
+                                stripped = text.strip()
+
+                                # Early termination: if already in votes and line is clearly non-votes
+                                # content (numbered items, all-caps headers, article refs), break
+                                # regardless of re_votes_content false positives
+                                if in_votes_section and not has_justice and _is_non_votes_content(stripped):
+                                    break
+
                                 if has_justice:
-                                    # Has justice surname - definitely votes
+                                    # Has justice surname — definitely votes
                                     in_votes_section = True
                                     votes_lines.append((line_num, text))
                                     votes_end_idx = i + 1
                                 elif is_votes_line:
-                                    # Looks like votes line but no justice surname
-                                    if len(text.strip()) < 50:
-                                        # Short line that looks like votes - include cautiously
+                                    # Has votes keyword (concur/dissent/JJ./etc.) but no justice surname
+                                    if len(stripped) < 50:
                                         in_votes_section = True
                                         votes_lines.append((line_num, text))
                                         votes_end_idx = i + 1
                                     else:
-                                        # Long line that looks like votes but no justice surname
-                                        # Could be false positive (e.g., "Billedo" in footnote)
                                         if in_votes_section:
-                                            # Already in votes section, this might be the end
                                             break
-                                        # Not yet in votes section, skip
-                                        pass
                                 elif in_votes_section:
-                                    # In votes but no justice surname and no votes keyword
-                                    if len(text.strip()) < 50:
-                                        # Short line - include cautiously
+                                    # Already in votes — check if this line continues votes or is new content
+                                    if _is_non_votes_content(stripped):
+                                        break
+                                    elif len(stripped) < 50:
+                                        # Short continuation line (e.g., second line of a wrapped justice name)
                                         votes_lines.append((line_num, text))
                                         votes_end_idx = i + 1
                                     else:
-                                        # Long line without justice reference = not votes
                                         break
                                 else:
-                                    # Not yet in votes section, skip leading non-votes lines
+                                    # Not yet in votes section, skip
                                     pass
                         
                         # Remove trailing blank lines from votes_lines
@@ -739,6 +786,17 @@ class SectionExtractor:
                         if self.config.votes_extend_past_boundary and votes_lines:
                             votes_lines = self._try_extend_votes_past_boundary(
                                 votes_lines, boundary)
+
+                        # Trim votes_lines at any large gap (>5 lines between
+                        # consecutive entries) — prevents span-based text from
+                        # including annex/footnote content between distant lines
+                        if len(votes_lines) > 1:
+                            trimmed = [votes_lines[0]]
+                            for vi in range(1, len(votes_lines)):
+                                if votes_lines[vi][0] - votes_lines[vi-1][0] > 5:
+                                    break
+                                trimmed.append(votes_lines[vi])
+                            votes_lines = trimmed
 
                         # Create votes annotation if we found any votes lines
                         if votes_lines:

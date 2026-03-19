@@ -7,7 +7,39 @@
       "Bash(cat:*)",
       "Bash(python3:*)",
       "Bash(python:*)",
-      "Bash(grep ^DECISION$\\\\|^RESOLUTION$\\\\|D E C I S I O N\\\\|R E S O L U T I O N:*)"
+      "Bash(grep ^DECISION$\\\\|^RESOLUTION$\\\\|D E C I S I O N\\\\|R E S O L U T I O N:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(for vol:*)",
+      "Bash(do python:*)",
+      "Bash(done)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys,json; cmd=json.load(sys.stdin)['tool_input']['command']; exit(0 if 'extract_predictions_csv.py' in cmd else 1)\" && cd C:/Users/Gamers/GitHub/SC-Decisions && python -B validation/check_headlines.py && python -B validation/check_overflow.py || true",
+            "timeout": 30,
+            "statusMessage": "Running CSV validation checks..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys,json; cmd=json.load(sys.stdin)['tool_input']['command']; exit(0 if '--score' in cmd and 'detection' in cmd else 1)\" && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Ground truth regression check complete. Review the Micro-averaged F1, per-label scores (especially votes, ponente, end_of_case), and Case summary above. Compare against baseline: F1=0.9665, votes=0.8889, ponente=0.9928.\"}}' || true",
+            "timeout": 10,
+            "statusMessage": "Scorer reminder..."
+          }
+        ]
+      }
     ]
   }
 }

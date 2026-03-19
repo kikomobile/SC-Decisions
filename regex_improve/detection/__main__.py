@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from .pipeline import process_volume, process_batch
 from .scorer import score_volume, format_results_table
+from .csv_extractor import write_predictions_csv
 
 
 def parse_volume_range(range_str: str) -> tuple[int, int]:
@@ -112,6 +113,23 @@ Examples:
         action="store_true",
         help="Output machine-readable JSON when scoring"
     )
+
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        nargs="?",
+        const=Path("predictions_extract.csv"),
+        default=None,
+        help="Extract predictions CSV after batch processing. "
+             "Optional path (default: predictions_extract.csv in CWD). "
+             "Auto-archives previous CSV."
+    )
+
+    parser.add_argument(
+        "--no-archive",
+        action="store_true",
+        help="Disable auto-archiving of previous CSV when using --csv"
+    )
     
     args = parser.parse_args()
     
@@ -169,7 +187,24 @@ Examples:
         # Scoring not supported in batch mode
         if args.score:
             print("Warning: Scoring not supported in batch mode. Use --score with single volume.")
-        
+
+        # CSV extraction if requested
+        if args.csv:
+            print(f"\n{'=' * 80}")
+            print("CSV EXTRACTION")
+            print(f"{'=' * 80}")
+            csv_output = args.csv
+            justices_path = Path(__file__).resolve().parent / "justices.json"
+            try:
+                csv_stats = write_predictions_csv(
+                    input_dir=output_dir,
+                    output_path=csv_output,
+                    justices_path=justices_path,
+                    archive=not args.no_archive,
+                )
+            except Exception as e:
+                print(f"CSV extraction failed: {e}")
+
     else:
         # Single file mode
         volume_path = args.input
@@ -198,7 +233,26 @@ Examples:
             skip_llm=args.skip_llm,
             force=args.force
         )
-        
+
+        # CSV extraction if requested (single mode: extract from the output file's directory)
+        if args.csv:
+            # In single mode, use the output file's parent as input dir
+            csv_input_dir = output_path.parent
+            print(f"\n{'=' * 80}")
+            print("CSV EXTRACTION")
+            print(f"{'=' * 80}")
+            csv_output = args.csv
+            justices_path = Path(__file__).resolve().parent / "justices.json"
+            try:
+                csv_stats = write_predictions_csv(
+                    input_dir=csv_input_dir,
+                    output_path=csv_output,
+                    justices_path=justices_path,
+                    archive=not args.no_archive,
+                )
+            except Exception as e:
+                print(f"CSV extraction failed: {e}")
+
         # Run scorer if requested
         if args.score:
             print("\n" + "=" * 80)

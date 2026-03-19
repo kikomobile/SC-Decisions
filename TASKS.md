@@ -88,11 +88,26 @@
 ### Scorer Enhancement
 - [x] **SCORE-1**: Annotation texts in scorer per-case output — `_truncate()` helper, `match_spans()`/`match_grouped_spans()` return 6-tuple with detail dicts, `per_case` gains `missed_annotations`/`extra_annotations`/`matched_annotations` fields, `format_results_table()` shows MISSED/EXTRA/low-IoU MATCHED sections per case.
 
+### CSV Extract Quality Fixes (CSV-1a, CSV-1b, CSV-2, CSV-3)
+- [x] **CSV-1a**: Widen SO ORDERED regex — handles smart quotes, "IT IS" prefix, trailing footnote numbers in `pattern_registry.py`. Recovered 86 missing votes (1314→1228).
+- [x] **CSV-1b**: Content-based votes termination — `_is_non_votes_content()` helper + early termination + gap trimming in `section_extractor.py`. Overflow 19→0.
+- [x] **CSV-2**: Ghost row filter — skip cases with no `case_number` in `extract_predictions_csv.py`. Blank rows 13→0.
+- [x] **CSV-3**: Widen ponente regex — optional trailing punctuation, search window 3→5, inline fallback in `section_extractor.py` + `pattern_registry.py`. +106 ponentes recovered (net +72 regression due to lost LLM-fallback ponentes from --skip-llm reprocess).
+
+### CSV Pipeline Integration (CSV-PIPE-1, CSV-PIPE-2)
+- [x] **CSV-PIPE-1**: Moved CSV extraction logic into `regex_improve/detection/csv_extractor.py` (JusticeMatcher, extract_cases, archive_csv, write_predictions_csv). Replaced `extract_predictions_csv.py` with thin wrapper. Auto-archiving via `csv_archive/` with mtime-based timestamps.
+- [x] **CSV-PIPE-2**: Wired `--csv` and `--no-archive` flags into `__main__.py`. CSV extraction runs after both single and batch mode. `--csv` uses `nargs="?"` with default `predictions_extract.csv`.
+
+### Pipeline Control Panel — Streamlit UI (UI-1, UI-2, UI-3)
+- [x] **UI-1**: Created `ui_helpers.py` — settings persistence (atomic JSON), `PipelineRunner` subprocess class with threaded log queue, command builders for single/batch/CSV modes, validation runners, `scan_volumes()`, `parse_summary_metrics()`.
+- [x] **UI-2**: Created `pipeline_ui.py` — Streamlit app with sidebar settings, 3 tabs (Single Volume, Batch Processing, CSV Extraction), live log streaming via `st.status`, summary metrics cards, validation check expanders.
+- [x] **UI-3**: Added `streamlit>=1.29.0` to `requirements.txt`, added `.pipeline_ui_settings.json` to `.gitignore`.
+
 ---
 
 ## Active Tasks
 
-> No active tasks.
+(No active tasks.)
 
 ---
 
