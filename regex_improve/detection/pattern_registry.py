@@ -98,7 +98,7 @@ def _build_baseline_config(era_name: str, **overrides) -> EraConfig:
         r'[A-Za-z\s,.\'\"\-\u2018\u2019\u201c\u201d]+$'
     )
     re_division = re.compile(
-        r'^(EN\s*BAN\s*C|(?:FIRST|SECOND|THIRD)\s+DIVIS[ILO]*[ILO]+N)\s*$',
+        r'^(EN\s*BAN\s*C|[A-Z]{4,7}\s+DIVIS[A-Z]+N)\s*$',
         re.IGNORECASE
     )
     re_syllabus_header = re.compile(r'^SY[IL]?LABUS\s*$', re.IGNORECASE)

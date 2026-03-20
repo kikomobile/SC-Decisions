@@ -103,11 +103,22 @@
 - [x] **UI-2**: Created `pipeline_ui.py` — Streamlit app with sidebar settings, 3 tabs (Single Volume, Batch Processing, CSV Extraction), live log streaming via `st.status`, summary metrics cards, validation check expanders.
 - [x] **UI-3**: Added `streamlit>=1.29.0` to `requirements.txt`, added `.pipeline_ui_settings.json` to `.gitignore`.
 
+### Vote Classification Fix (CSV-4, CSV-4b)
+- [x] **CSV-4**: Replaced sentence-based clause splitting with action-verb-based splitting in `csv_extractor.py` `parse_votes()`. Added `_VOTE_VERB_RE` regex + OCR variants (concut/conrur/concui). Fixed 10 misclassified cases.
+- [x] **CSV-4b**: Added OCR normalization step in `parse_votes()` — canonicalizes 10 OCR variants of "concur" (coneur/concue/concuf/soncur/concor/coricur/conour/concut/conrur/concui), handles hyphenated `con- cur`/`con cur`, underscore-prefixed `_concur`. Simplified `_VOTE_VERB_RE` and step 3 regex. Fixed 20 additional cases.
+
+### Votes Detection Fixes (VOTE-FIX-1, VOTE-FIX-2)
+- [x] **VOTE-FIX-1**: Widened `re_division` in `pattern_registry.py` — `[A-Z]{4,7}` replaces literal `FIRST|SECOND|THIRD` to handle OCR corruptions (e.g., FIPST). FSM bracket gate prevents false positives.
+- [x] **VOTE-FIX-2**: Added `_RE_DEFINITE_VOTES` regex in `section_extractor.py` — lines with unambiguous votes keywords (concur/dissent/leave/no part) bypass 50-char limit. Two guard points updated (initial capture + continuation).
+
+### Label Inspector (INSPECT-1, INSPECT-2, INSPECT-FIX-1)
+- [x] **INSPECT-1**: Created `label_inspector.py` — `parse_lookup_input()`, `lookup_cases()`, `format_case_text()`, `compile_results()` for spot-checking predicted labels by volume+case_number. Standalone module, stdlib-only, UTF-8 safe.
+- [x] **INSPECT-2**: Wired label inspector into `pipeline_ui.py` as 4th tab — text area paste input, per-case expanders with copyable code blocks, metrics row, JSON download button.
+- [x] **INSPECT-FIX-1**: Guarded `None` confidence in `format_case_text()` and UI expander label — displays "N/A" instead of crashing on `:.3f`.
+
 ---
 
 ## Active Tasks
-
-(No active tasks.)
 
 ---
 

@@ -6,6 +6,7 @@ Launch: streamlit run pipeline_ui.py
 
 import streamlit as st
 import time
+import json
 from pathlib import Path
 
 st.set_page_config(
@@ -15,6 +16,9 @@ st.set_page_config(
 )
 
 import ui_helpers as uh
+from regex_improve.detection.label_inspector import (
+    parse_lookup_input, lookup_cases, format_case_text, compile_results,
+)
 
 # ---------------------------------------------------------------------------
 # Session state initialization (runs once per session)
@@ -31,6 +35,8 @@ if "run_metrics" not in st.session_state:
     st.session_state.run_metrics = {}
 if "validation_results" not in st.session_state:
     st.session_state.validation_results = {}
+if "inspect_results" not in st.session_state:
+    st.session_state.inspect_results = []
 
 # ---------------------------------------------------------------------------
 # Sidebar — Global Settings
@@ -127,12 +133,12 @@ def display_metrics(metrics: dict):
 
 
 # ---------------------------------------------------------------------------
-# Main layout — three tabs
+# Main layout — four tabs
 # ---------------------------------------------------------------------------
 st.title("SC Decisions — Pipeline Control")
 
-tab_single, tab_batch, tab_csv = st.tabs(
-    ["Single Volume", "Batch Processing", "CSV Extraction"]
+tab_single, tab_batch, tab_csv, tab_inspect = st.tabs(
+    ["Single Volume", "Batch Processing", "CSV Extraction", "Label Inspector"]
 )
 
 # --- Tab 1: Single Volume ---------------------------------------------------
@@ -265,9 +271,11 @@ with tab_csv:
     st.divider()
     st.subheader("Validation Checks")
 
+    _archive = sorted(Path("csv_archive").glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    _default_baseline = str(_archive[0]) if _archive else "predictions_extract.csv"
     val_before = st.text_input(
         "Baseline CSV (before)",
-        value="predictions_extract.csv",
+        value=_default_baseline,
         key="val_before",
     )
     val_after = st.text_input(
@@ -283,3 +291,62 @@ with tab_csv:
         for name, output in st.session_state.validation_results.items():
             with st.expander(name, expanded=False):
                 st.code(output, language="text")
+
+# --- Tab 4: Label Inspector -------------------------------------------------
+with tab_inspect:
+    st.markdown(
+        "Paste **volume + case number** rows (tab-separated, e.g. copied from Excel)."
+    )
+    inspect_input = st.text_area(
+        "Volume / Case Number pairs",
+        height=150,
+        placeholder="227\tG.R. No. 71905\n227\tG.R. No. 68661",
+        key="inspect_input",
+    )
+
+    col1, col2 = st.columns([1, 3])
+    run_inspect = col1.button("Look Up Labels", key="run_inspect", type="primary")
+
+    if run_inspect and inspect_input.strip():
+        queries = parse_lookup_input(inspect_input)
+        if not queries:
+            st.error("No valid volume/case_number pairs found. Expected tab-separated lines.")
+        else:
+            with st.spinner(f"Looking up {len(queries)} case(s)..."):
+                results = lookup_cases(s["output_dir"], queries)
+
+            # Summary metrics
+            found = sum(1 for r in results if r.found)
+            not_found = len(results) - found
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("Queried", len(results))
+            mc2.metric("Found", found)
+            mc3.metric("Not Found", not_found)
+
+            # Store in session state for download button
+            st.session_state.inspect_results = results
+
+            # Display each case
+            for r in results:
+                if r.found:
+                    with st.expander(
+                        f"Vol {r.volume} — {r.case_number} — conf: {r.confidence:.3f if r.confidence is not None else 'N/A'}",
+                        expanded=False,
+                    ):
+                        st.code(format_case_text(r), language="text")
+                else:
+                    with st.expander(
+                        f"Vol {r.volume} — {r.case_number} — NOT FOUND",
+                        expanded=False,
+                    ):
+                        st.warning(r.error)
+
+            # Download button
+            compiled = compile_results(results)
+            st.download_button(
+                "Download Results (JSON)",
+                data=json.dumps(compiled, indent=2, ensure_ascii=False),
+                file_name="label_inspection.json",
+                mime="application/json",
+                key="inspect_download",
+            )

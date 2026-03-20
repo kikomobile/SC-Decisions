@@ -53,6 +53,11 @@ def _line_has_justice_surname(text, justices):
 
 _RE_NUMBERED_ITEM = re.compile(r'^\d+[.)\s]')
 _RE_ALLCAPS_HEADER = re.compile(r'^[A-Z][A-Z\s&,]{5,}$')
+_RE_DEFINITE_VOTES = re.compile(
+    r'\b(?:concur|dissent|on\s+(?:official\s+)?leave|'
+    r'(?:took|1ook|look)\s+no\s+part|no\s+part)\b',
+    re.IGNORECASE,
+)
 
 def _is_non_votes_content(text: str) -> bool:
     """Detect lines that are clearly NOT votes content.
@@ -720,7 +725,9 @@ class SectionExtractor:
                                 
                                 # Check if this line looks like a votes line (existing regex)
                                 is_votes_line = self.config.re_votes_content.search(text) is not None
-                                
+                                # VOTE-FIX-2: Check for definite votes keywords that bypass 50-char limit
+                                is_definite_votes = _RE_DEFINITE_VOTES.search(text) is not None
+
                                 # Skip footnote lines
                                 if self.config.re_footnote_start.match(text):
                                     if in_votes_section:
@@ -757,7 +764,7 @@ class SectionExtractor:
                                     votes_end_idx = i + 1
                                 elif is_votes_line:
                                     # Has votes keyword (concur/dissent/JJ./etc.) but no justice surname
-                                    if len(stripped) < 50:
+                                    if is_definite_votes or len(stripped) < 50:
                                         in_votes_section = True
                                         votes_lines.append((line_num, text))
                                         votes_end_idx = i + 1
@@ -768,8 +775,8 @@ class SectionExtractor:
                                     # Already in votes — check if this line continues votes or is new content
                                     if _is_non_votes_content(stripped):
                                         break
-                                    elif len(stripped) < 50:
-                                        # Short continuation line (e.g., second line of a wrapped justice name)
+                                    elif is_definite_votes or len(stripped) < 50:
+                                        # Definite votes keyword or short continuation line
                                         votes_lines.append((line_num, text))
                                         votes_end_idx = i + 1
                                     else:

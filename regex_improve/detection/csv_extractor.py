@@ -177,37 +177,46 @@ class JusticeMatcher:
 
         text = " ".join(raw_votes.split())
 
-        # Split on sentence boundaries (period after 3+ lowercase letters,
-        # followed by space + capital). This avoids splitting at abbreviations
-        # like "Jr.", "A.", "J.", "M.", "Sr.", "S.A.J." which are not
-        # sentence boundaries.
-        clauses = re.split(r"(?<=[a-z]{3}\.)\s+(?=[A-Z])", text)
+        # --- Normalize OCR variants of "concur" to canonical form ---
+        # Hyphenated line breaks: "con- cur" or "con cur" → "concur"
+        text = re.sub(r'\bcon-\s*cur', 'concur', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bcon\s+cur', 'concur', text, flags=re.IGNORECASE)
+        # Underscore-prefixed (blocks \b): "_concur" → " concur"
+        text = re.sub(r'_concur', ' concur', text, flags=re.IGNORECASE)
+        # Single-word OCR misspellings → "concur"
+        text = re.sub(
+            r'\b(?:coneur|concue|concuf|soncur|concor|coricur|conour|'
+            r'concut|conrur|concui)\b',
+            'concur', text, flags=re.IGNORECASE,
+        )
 
-        for clause in clauses:
-            clause = clause.strip()
-            if not clause:
-                continue
+        # Find all vote action verbs in the text.
+        # Each verb classifies the justice names that PRECEDE it.
+        actions = list(self._VOTE_VERB_RE.finditer(text))
 
-            cl = clause.lower()
+        if not actions:
+            return result
 
-            # Classify the clause
-            if re.search(r"\bdissent", cl):
-                if re.search(r"\bconcur", cl):
-                    category = "other"
-                else:
-                    category = "dissenting"
-            elif re.search(r"\bno\s+part\b|\btook\s+no\s+part\b", cl):
-                category = "no_part"
-            elif re.search(r"\bon\s+leave\b", cl):
-                category = "on_leave"
-            elif re.search(r"\bconcur", cl):
-                category = "concurring"
-            else:
-                continue  # Not a recognisable vote clause
+        prev_end = 0
+        for m in actions:
+            names_text = text[prev_end:m.start()]
+            verb = m.group().lower()
 
-            matched, unmatched = self._extract_justices(clause)
+            # Classify by the verb
+            if 'dissent' in verb:
+                category = 'dissenting'
+            elif 'no' in verb and 'part' in verb:
+                category = 'no_part'
+            elif 'leave' in verb:
+                category = 'on_leave'
+            else:  # concur / concut / conrur / concui
+                category = 'concurring'
+
+            matched, unmatched = self._extract_justices(names_text)
             result[category].extend(matched)
             result["unmatched"].extend(unmatched)
+
+            prev_end = m.end()
 
         # Deduplicate while preserving order
         for key in result:
@@ -235,6 +244,19 @@ class JusticeMatcher:
         "Wife", "However", "Please sce",
     }
 
+    # Regex matching vote action verbs (including OCR variants).
+    # Longer alternatives listed first so finditer prefers them.
+    _VOTE_VERB_RE = re.compile(
+        r'\b(?:'
+        r'(?:took|1ook|look)\s+no\s+part|'   # "took no part" + OCR
+        r'no\s+part|'                         # bare "no part"
+        r'on\s+(?:official\s+)?leave|'        # "on leave" / "on official leave"
+        r'concur\w*|'                         # "concur" (OCR variants pre-normalized)
+        r'dissent\w*'                         # "dissent"
+        r')',
+        re.IGNORECASE,
+    )
+
     def _extract_justices(self, clause: str) -> tuple[list[str], list[str]]:
         """Extract justice names from a single clause via fuzzy matching."""
         matched = []
@@ -259,7 +281,9 @@ class JusticeMatcher:
 
         # --- Step 3: cut at the action verb --------------------------------
         action = re.search(
-            r"\b(?:concur|dissent|took\s+no\s+part|no\s+part|on\s+leave|"
+            r"\b(?:concur\w*|dissent\w*|"
+            r"(?:took|1ook|look)\s+no\s+part|no\s+part|"
+            r"on\s+(?:official\s+)?leave|"
             r"see\s+(?:separate|concurring|dissenting)|"
             r"please\s+see|joins?\s|maintained?\b|reserves?\b|"
             r"following\s|reiterates?\b|in\s+the\s+result)",
