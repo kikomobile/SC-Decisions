@@ -28,6 +28,8 @@ cupy-cuda12x>=13.0
 
 # Detection pipeline dependencies
 rapidfuzz>=3.0.0
+networkx>=3.0
+pyvis>=0.3.0
 openai>=1.0.0
 
 # Testing

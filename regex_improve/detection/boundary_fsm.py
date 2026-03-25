@@ -221,8 +221,98 @@ class CaseBoundaryDetector:
             else:
                 boundaries[i].end_line = total_lines
         
+        # Post-process: fix displaced case endings from jumbled PDF block ordering
+        boundaries = self.fix_displaced_endings(boundaries)
         return boundaries
-    
+
+    def fix_displaced_endings(self, boundaries: list[CaseBoundary]) -> list[CaseBoundary]:
+        """Post-process boundaries to fix displaced case endings.
+
+        When PDF text extraction produces out-of-order blocks, the end of
+        case N (SO ORDERED, votes, footnotes) may appear textually after
+        the start of case N+1 (DIVISION, G.R. bracket, parties) but before
+        N+1's SYLLABUS/counsel/doc_type. This method detects that pattern
+        and extends case N's end_line to include the displaced text.
+
+        Args:
+            boundaries: list of CaseBoundary from detect(), ordered by start_line.
+
+        Returns:
+            The same list, mutated in place, with end_line adjustments.
+        """
+        if len(boundaries) < 2:
+            return boundaries
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        config = self.config
+
+        for i in range(len(boundaries) - 1):
+            curr = boundaries[i]
+            nxt = boundaries[i + 1]
+
+            # Scan the first ~40 lines of the NEXT case's boundary region.
+            scan_start = nxt.start_line
+            scan_end = min(nxt.end_line, scan_start + 40)
+
+            displaced_end_line = None
+            found_so_ordered = False
+            found_wherefore = False
+
+            for line_num in range(scan_start, scan_end + 1):
+                text = self.loader.get_line_text(line_num)
+                if not text or not text.strip():
+                    continue
+
+                # Skip the new case's own header lines (division, bracket, parties)
+                if self.preprocessor.is_noise(line_num):
+                    continue
+
+                # Stop if we hit the new case's substantive content
+                if config.re_syllabus_header.match(text):
+                    break
+                if config.re_counsel_header.match(text):
+                    break
+                if config.re_doc_type.match(text):
+                    break
+
+                # Detect displaced patterns from the previous case
+                if config.re_so_ordered.match(text):
+                    found_so_ordered = True
+                    displaced_end_line = line_num
+                    continue
+                if config.re_wherefore.match(text):
+                    found_wherefore = True
+                    displaced_end_line = line_num
+                    continue
+
+                # After SO ORDERED: votes lines (justice surnames + concur/dissent)
+                if found_so_ordered:
+                    if re.search(
+                        r'\b(?:concur|dissent|[Oo]n\s+(?:official\s+)?leave|'
+                        r'(?:took|1ook|look)\s+no\s+part)\b',
+                        text, re.IGNORECASE
+                    ):
+                        displaced_end_line = line_num
+                        continue
+                    # Footnote-like lines after votes (e.g., "* Designated acting member...")
+                    if re.match(r'^\s*[\*\d]+\s', text):
+                        displaced_end_line = line_num
+                        continue
+
+            # If we found displaced SO ORDERED or WHEREFORE before the new
+            # case's substantive content, extend the previous case's boundary
+            if displaced_end_line and (found_so_ordered or found_wherefore):
+                logger.info(
+                    f"GUARD-1: Displaced ending detected — case ending at line "
+                    f"{curr.end_line} extended to {displaced_end_line} "
+                    f"(SO_ORDERED={found_so_ordered}, WHEREFORE={found_wherefore})"
+                )
+                curr.end_line = displaced_end_line
+
+        return boundaries
+
     def _extract_case_number_from_bracket(self, bracket_line: str, date_text: str) -> str:
         """Extract the full case number text (with prefix) from bracket line."""
         # Find the position of the date in the bracket line

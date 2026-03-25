@@ -759,6 +759,56 @@ Tab 3 — CSV Extraction:
             check_votes_by_era
         - Results appear in collapsible expanders
 
+Tab 4 — Label Inspector:
+
+    Paste volume + case number pairs (tab-separated, e.g. copied from Excel)
+    to look up predicted labels for specific cases.
+
+    Input format (one per line, tab-separated):
+        227	G.R. No. 71905
+        227	G.R. No. 68661
+
+    Click "Look Up Labels" to search *_predicted.json files in the output
+    directory. Results show confidence score, all extracted labels, and
+    annotation text for each case.
+
+    Summary metrics: queried / found / not found counts.
+
+    "Download Results (JSON)" exports all results as a JSON file.
+
+Tab 5 — Network Analysis:
+
+    Builds and visualizes a justice co-voting network. See Section 15 for
+    full details on the network pipeline.
+
+    Build parameters:
+        - Vol Start / Vol End — filter which volumes contribute edges
+        - Min Confidence — confidence threshold slider (default: 0.7)
+        - Build Network — runs NetworkBuilder and renders the graph
+
+    Display controls:
+        - Edge Weight Threshold — hides weak edges in the visualization
+        - Node Size By — weighted degree / case count / uniform
+        - Layout — "Community Clusters" (pre-computed, deterministic) or
+          "Interactive Physics" (forceAtlas2Based, draggable nodes)
+        - Curved edges — toggle curved vs straight edge lines
+        - Opacity scaling — toggle weight-based edge transparency
+
+    After building, displays:
+        - Metric cards: nodes, edges, density, community count
+        - Interactive pyvis graph with Louvain community colors, justice
+          names rendered inside circular nodes (white text on colored bg)
+        - Community membership table (expandable)
+        - Top 20 justice pairs by co-voting weight (expandable)
+        - Build statistics JSON (expandable)
+
+    Downloads (two rows):
+        - Data exports: edge list CSV, adjacency matrix CSV, stats JSON
+        - Graph exports: interactive HTML, PNG image, SVG vector image
+          (PNG/SVG are generated on-demand via matplotlib static render)
+
+    The build also exports files to network_output/ on disk.
+
 Live log display:
 
     All pipeline runs stream output in real time via a background thread.
@@ -773,3 +823,116 @@ Settings persistence:
     Settings are stored in .pipeline_ui_settings.json (repo root, gitignored).
     Atomic writes (temp file + os.replace) prevent corruption.
     Missing keys are filled from defaults on load.
+
+
+===============================================================================
+15. NETWORK ANALYSIS (Justice Co-voting Graph)
+===============================================================================
+
+Purpose:
+
+    Builds a weighted undirected graph of Supreme Court justices' voting
+    patterns. Nodes represent justices; edge weight = number of cases where
+    two justices voted together (majority bloc, dissent bloc, or explicit
+    joins). The graph enables identification of ideological clusters via
+    Louvain community detection.
+
+Outputs (network_output/):
+
+    edge_list.csv          — Source/target/weight sorted by weight descending
+    adjacency_matrix.csv   — NxN matrix with alphabetical node ordering
+    voting_network.graphml — GraphML for Gephi / igraph import
+    network_stats.json     — Build statistics and graph metrics
+
+CLI usage:
+
+    python network/build_network.py
+    python network/build_network.py --csv path/to/file.csv
+    python network/build_network.py --min-confidence 0.8
+    python network/build_network.py --volume-range 226-500
+    python network/build_network.py --output-dir results/
+
+    Flags:
+        --csv              Path to predictions_extract.csv (default: repo root)
+        --justices         Path to justices.json (default: regex_improve/detection/)
+        --min-confidence   Confidence threshold (default: 0.7)
+        --volume-range     Filter by volume range as START-END (e.g. 226-500)
+        --output-dir       Output directory (default: network_output/)
+
+Streamlit UI:
+
+    The "Network Analysis" tab in pipeline_ui.py provides interactive controls:
+        - Volume range (start/end) to filter which volumes contribute edges
+        - Min confidence slider to set the confidence threshold
+        - "Build Network" button triggers the build and renders the result
+
+    Display controls:
+        - Edge Weight Threshold — slider to hide weak edges (0-500)
+        - Node Size By — weighted degree / case count / uniform
+        - Layout — "Community Clusters" or "Interactive Physics"
+        - Curved edges — checkbox (default: on)
+        - Opacity scaling — checkbox (default: on)
+
+    Visualization details:
+
+        Nodes are circular with justice names rendered inside (white text on
+        community-colored background). Long names (>14 chars) are line-broken
+        at hyphens or spaces. Node size scales by the selected metric.
+
+        Edges use community-aware coloring: same-community edges inherit the
+        community color, cross-community edges are grey. With opacity scaling
+        enabled, weak edges fade to near-invisible (alpha 0.08) while strong
+        edges are prominent (alpha 0.85). Curved edges reduce visual overlap.
+
+        Two layout modes:
+
+            Community Clusters — Pre-computed via NetworkX spring_layout with
+            Louvain community centroids placed on a circle. Deterministic
+            (seed=42), no physics simulation. Communities are spatially
+            separated. Nodes are fixed in place.
+
+            Interactive Physics — vis.js forceAtlas2Based solver. Nodes are
+            draggable and the layout stabilizes over time. Better for
+            exploration but less predictable positioning.
+
+    After building, displays:
+        - Metric cards: nodes, edges, density, community count
+        - Interactive pyvis graph (described above)
+        - Community membership table (expandable)
+        - Top 20 justice pairs by co-voting weight (expandable)
+        - Build statistics JSON (expandable)
+
+    Downloads (two rows):
+
+        Data exports:
+            - Edge List (CSV) — source/target/weight, sorted by weight desc
+            - Adjacency Matrix (CSV) — NxN matrix, alphabetical node ordering
+            - Network Stats (JSON) — build stats + graph metrics
+
+        Graph exports:
+            - Interactive Graph (HTML) — self-contained PyVis HTML with
+              embedded vis.js; opens in any browser with full interactivity
+            - PNG image — static matplotlib render (150 DPI), generated
+              on-demand via "Generate PNG" button
+            - SVG vector image — scalable matplotlib render for papers and
+              presentations, generated on-demand via "Generate SVG" button
+
+        The matplotlib renders use the same community detection (seed=42),
+        community-aware layout, coloring, and edge styling as the PyVis
+        interactive view. A community legend is included in static exports.
+
+Voting rules:
+
+    Rule 1 (Majority bloc): Ponente + all concurring justices form pairwise
+    edges. PER CURIAM cases omit the ponente from the majority bloc but still
+    include concurring justices.
+
+    Rule 2 (Dissent bloc): All dissenting justices form pairwise edges among
+    themselves (only when 2+ dissenters exist).
+
+    Rule 3 (Explicit joins): Parses votes_raw text for phrases like "joins
+    the dissent of Justice X" or "Justice X's dissent" to create edges between
+    the joining justice and the target dissenter.
+
+    Each rule increments the edge weight by 1 per case. The resulting graph
+    captures how frequently each pair of justices voted on the same side.

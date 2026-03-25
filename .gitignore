@@ -37,3 +37,14 @@ Thumbs.db
 
 # Pipeline UI settings (user-specific)
 .pipeline_ui_settings.json
+
+# Network analysis output
+network_output/
+
+# Generated data files
+csv_archive/
+predictions_extract.csv
+detection_manifest.json
+reprocess_status.csv
+regex_improve/corrections/
+*.tmp.*

@@ -251,6 +251,9 @@ def run_all_csv_validations(before_csv: str, after_csv: str) -> dict:
     results["check_votes_by_era"] = run_validation_script(
         "check_votes_by_era.py", [before_csv, after_csv]
     )
+    results["check_votes_by_era_html"] = run_validation_script(
+        "check_votes_by_era.py", ["--html", after_csv]
+    )
     return results
 
 
