@@ -50,7 +50,14 @@ def main():
         action="store_true",
         help="Do not archive the previous CSV before overwriting",
     )
+    parser.add_argument(
+        "--justices-csv",
+        default="ph_sc_justices.csv",
+        help="Path to ph_sc_justices.csv for full-name resolution (default: ph_sc_justices.csv)",
+    )
     args = parser.parse_args()
+
+    csv_path = args.justices_csv if os.path.exists(args.justices_csv) else None
 
     try:
         stats = write_predictions_csv(
@@ -59,6 +66,7 @@ def main():
             justices_path=args.justices,
             threshold=args.threshold,
             archive=not args.no_archive,
+            csv_path=csv_path,
         )
     except FileNotFoundError as e:
         print(f"ERROR: {e}")

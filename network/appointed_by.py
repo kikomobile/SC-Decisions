@@ -107,10 +107,13 @@ def resolve_appointed_by(rows: list[dict]) -> dict[str, str]:
 def build_appointed_by_map(
     node_names: list[str], csv_path: str | Path,
 ) -> dict[str, str]:
-    """Map graph node names (uppercase surnames) to appointing presidents.
+    """Map graph node names to appointing presidents.
+
+    Supports both full-name nodes (e.g. "Arturo Brion") and legacy
+    surname-only nodes (e.g. "CARPIO").
 
     Args:
-        node_names: List of graph node names (e.g. ["CARPIO", "PERALTA"]).
+        node_names: List of graph node names.
         csv_path: Path to ph_sc_justices.csv.
 
     Returns:
@@ -125,9 +128,14 @@ def build_appointed_by_map(
 
     result = {}
     for node in node_names:
+        # --- Strategy 0: Exact full-name match (new pipeline with full names) ---
+        if node in name_to_president:
+            result[node] = name_to_president[node]
+            continue
+
         node_upper = node.upper().strip()
 
-        # 1. Check manual aliases
+        # --- Strategy 1: Check manual aliases ---
         if node_upper in _ALIASES:
             alias = _ALIASES[node_upper]
             for csv_name in csv_names:
@@ -137,17 +145,14 @@ def build_appointed_by_map(
             if node in result:
                 continue
 
-        # 2. Try matching: node surname appears as last part of CSV full name
-        #    e.g. "PERALTA" matches "Diosdado Peralta"
-        #    Handle suffixes: "DAVIDE, JR." -> look for "Davide"
+        # --- Strategy 2: Word-level token matching ---
         clean = node_upper.replace(",", "").replace("JR.", "").replace("SR.", "").strip()
         tokens = clean.split()
 
         matched = False
         for csv_name in csv_names:
-            csv_upper = csv_name.upper()
-            # Check if all tokens of the registry name appear in the CSV name
-            if all(t in csv_upper for t in tokens):
+            csv_words = set(csv_name.upper().split())
+            if all(t in csv_words for t in tokens):
                 result[node] = name_to_president[csv_name]
                 matched = True
                 break
@@ -155,11 +160,11 @@ def build_appointed_by_map(
         if matched:
             continue
 
-        # 3. Last-token match (least specific, only if unambiguous)
+        # --- Strategy 3: Last-token unambiguous match ---
         last_token = tokens[-1] if tokens else ""
         if last_token and len(last_token) >= 4:
             candidates = [
-                cn for cn in csv_names if last_token in cn.upper()
+                cn for cn in csv_names if last_token in cn.upper().split()
             ]
             if len(candidates) == 1:
                 result[node] = name_to_president[candidates[0]]

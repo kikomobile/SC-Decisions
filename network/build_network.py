@@ -41,6 +41,44 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Display name extraction  (full name → surname label)
+# ---------------------------------------------------------------------------
+
+# Compound surnames that can't be derived by "take the last word"
+_DISPLAY_OVERRIDES = {
+    "Jose Abad Santos":         "Abad Santos",
+    "Vicente Abad Santos":      "Abad Santos",
+    "Priscilla Baltazar-Padilla": "Baltazar-Padilla",
+}
+
+
+def extract_display_name(full_name: str) -> str:
+    """Extract a short display surname from a full justice name.
+
+    'Arturo Brion'          → 'Brion'
+    'Andres Reyes Jr.'      → 'Reyes, Jr.'
+    'J. B. L. Reyes'        → 'Reyes'
+    'Roberto A. Abad'       → 'Abad'
+    'Jose Abad Santos'      → 'Abad Santos'   (override)
+    'Priscilla Baltazar-Padilla' → 'Baltazar-Padilla' (override)
+    """
+    if full_name in _DISPLAY_OVERRIDES:
+        return _DISPLAY_OVERRIDES[full_name]
+
+    parts = full_name.strip().split()
+    suffix_parts: list[str] = []
+    while parts and parts[-1].rstrip(".").lower() in ("jr", "sr", "iii", "ii", "iv"):
+        suffix_parts.insert(0, parts.pop())
+
+    surname = parts[-1] if parts else full_name
+    # Preserve hyphenated surnames
+    if suffix_parts:
+        sfx = " ".join(s.rstrip(".").capitalize() + "." for s in suffix_parts)
+        return f"{surname}, {sfx}"
+    return surname
+
+
+# ---------------------------------------------------------------------------
 # DissenterJoinParser — Rule #3: explicit joins/concurs with dissent
 # ---------------------------------------------------------------------------
 
@@ -75,7 +113,8 @@ class DissenterJoinParser:
             re.IGNORECASE,
         )
 
-    def parse(self, votes_raw: str) -> list[tuple[str, str]]:
+    def parse(self, votes_raw: str,
+              case_date: str | None = None) -> list[tuple[str, str]]:
         """Return (joiner, target) pairs with names resolved via JusticeMatcher."""
         if not votes_raw:
             return []
@@ -92,13 +131,14 @@ class DissenterJoinParser:
                 if not target_m:
                     continue
                 target_raw = target_m.group(1).rstrip(".,")
-                target_name, _ = self.matcher.match(target_raw)
+                target_name, _ = self.matcher.match(target_raw,
+                                                    case_date=case_date)
                 if not target_name or target_name in EXCLUDE_NAMES:
                     continue
 
                 # Extract joiner(s) from text before the verb
                 before = sentence[:m.start()]
-                joiners = self._extract_joiners(before)
+                joiners = self._extract_joiners(before, case_date)
                 for j in joiners:
                     if j != target_name:
                         pairs.append((j, target_name))
@@ -106,19 +146,21 @@ class DissenterJoinParser:
             # --- Strategy B: possessive form "Justice X's dissent" ---
             for m in self._possessive_re.finditer(sentence):
                 target_raw = m.group(1).rstrip(".,")
-                target_name, _ = self.matcher.match(target_raw)
+                target_name, _ = self.matcher.match(target_raw,
+                                                    case_date=case_date)
                 if not target_name or target_name in EXCLUDE_NAMES:
                     continue
 
                 before = sentence[:m.start()]
-                joiners = self._extract_joiners(before)
+                joiners = self._extract_joiners(before, case_date)
                 for j in joiners:
                     if j != target_name:
                         pairs.append((j, target_name))
 
         return pairs
 
-    def _extract_joiners(self, text: str) -> list[str]:
+    def _extract_joiners(self, text: str,
+                         case_date: str | None = None) -> list[str]:
         """Extract justice names from text preceding a join verb."""
         # Clean up: remove trailing commas, "JJ.", "J.", "C.J."
         text = text.strip().rstrip(",.")
@@ -137,7 +179,7 @@ class DissenterJoinParser:
             part = part.rstrip(",. ")
             if not part or len(part) < 2:
                 continue
-            name, _ = self.matcher.match(part)
+            name, _ = self.matcher.match(part, case_date=case_date)
             if name and name not in EXCLUDE_NAMES:
                 names.append(name)
         return names
@@ -168,19 +210,29 @@ class NetworkBuilder:
         }
         self._case_counts: Counter = Counter()
 
-    def build(self, csv_path: str, vol_min: int = None, vol_max: int = None) -> nx.Graph:
+    def build(
+        self, csv_path: str, vol_min: int = None, vol_max: int = None,
+        division_filter: list[str] | None = None,
+        dissent_filter: str = "all",
+    ) -> nx.Graph:
         """Build the network from a predictions CSV file.
 
         Args:
             csv_path: Path to predictions_extract.csv.
             vol_min: If set, skip rows with volume < vol_min.
             vol_max: If set, skip rows with volume > vol_max.
+            division_filter: If set, only include cases whose division matches
+                one of the given strings (case-insensitive substring match).
+            dissent_filter: "all" (default), "unanimous" (no dissenters),
+                or "with_dissent" (at least one dissenter).
         """
         with open(csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
         self.stats["total_rows"] = len(rows)
+        self.stats["skipped_division_filter"] = 0
+        self.stats["skipped_dissent_filter"] = 0
 
         for row in rows:
             # Volume range filtering
@@ -197,6 +249,23 @@ class NetworkBuilder:
                     self.stats["skipped_volume_filter"] += 1
                     continue
 
+            # Division filtering
+            if division_filter:
+                row_div = (row.get("division") or "").upper()
+                if not any(f.upper() in row_div for f in division_filter):
+                    self.stats["skipped_division_filter"] += 1
+                    continue
+
+            # Dissent filtering
+            if dissent_filter == "unanimous":
+                if (row.get("dissenting") or "").strip():
+                    self.stats["skipped_dissent_filter"] += 1
+                    continue
+            elif dissent_filter == "with_dissent":
+                if not (row.get("dissenting") or "").strip():
+                    self.stats["skipped_dissent_filter"] += 1
+                    continue
+
             confidence = float(row.get("confidence", 0))
             if confidence < self.min_confidence:
                 self.stats["skipped_low_confidence"] += 1
@@ -204,9 +273,10 @@ class NetworkBuilder:
             self.stats["filtered_rows"] += 1
             self._process_case(row)
 
-        # Set case_count as node attribute
+        # Set case_count and display_name as node attributes
         for node in self.G.nodes:
             self.G.nodes[node]["case_count"] = self._case_counts.get(node, 0)
+            self.G.nodes[node]["display_name"] = extract_display_name(node)
 
         return self.G
 
@@ -216,6 +286,7 @@ class NetworkBuilder:
         concurring_raw = (row.get("concurring") or "").strip()
         dissenting_raw = (row.get("dissenting") or "").strip()
         votes_raw = (row.get("votes_raw") or "").strip()
+        case_date = (row.get("date") or "").strip()
 
         # Parse concurring justices
         concurring = self._parse_names(concurring_raw)
@@ -253,7 +324,7 @@ class NetworkBuilder:
                 self.stats["dissent_edges_added"] += 1
 
         # --- Rule 3: Explicit joins ---
-        join_pairs = self.join_parser.parse(votes_raw)
+        join_pairs = self.join_parser.parse(votes_raw, case_date=case_date)
         for joiner, target in join_pairs:
             self._add_edge(joiner, target)
             self.stats["dissent_join_edges_added"] += 1

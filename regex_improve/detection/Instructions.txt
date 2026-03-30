@@ -936,3 +936,508 @@ Voting rules:
 
     Each rule increments the edge weight by 1 per case. The resulting graph
     captures how frequently each pair of justices voted on the same side.
+
+Detailed variable reference:
+
+    ── network/build_network.py ──
+
+    Constants:
+
+        EXCLUDE_NAMES = {"LLM_TEST_MARKER", "Per curiam", "PER CURIAM", ""}
+            Set of names to exclude from graph nodes. Prevents dummy
+            markers, per curiam labels, and empty strings from appearing
+            as justice nodes.
+
+        DEFAULT_CSV = "predictions_extract.csv"
+            Default input file. Contains one row per case with columns:
+            volume, gr_number, ponente, concurring, dissenting,
+            votes_raw, confidence.
+
+        DEFAULT_JUSTICES = "regex_improve/detection/justices.json"
+            Path to the canonical justice name registry used for fuzzy
+            matching.
+
+        DEFAULT_OUTPUT_DIR = "network_output"
+            Where edge list, adjacency matrix, GraphML, and stats JSON
+            are written when run from the command line.
+
+    DissenterJoinParser:
+
+        matcher: JusticeMatcher
+            Instance from csv_extractor module. Fuzzy-matches raw name
+            strings (often OCR-corrupted) to canonical justice names.
+            Used by both _verb_re strategy and _possessive_re strategy.
+
+        _verb_re: re.Pattern
+            Matches verb phrases: "joins/concurs in/concurs with/agrees
+            with" followed by "the dissent/dissenting/separate opinion
+            of". Handles OCR artifact "1 join" where I→1. Used in
+            Strategy A.
+
+        _target_re: re.Pattern
+            Extracts the target justice name after "of". Matches optional
+            "Mme. Justice" / "J." prefix followed by a capitalized name
+            with optional Jr/Sr suffix. Applied to text immediately
+            after _verb_re match.
+
+        _possessive_re: re.Pattern
+            Strategy B: matches possessive forms like "Justice
+            Sarmiento's dissent". Captures the name before the
+            possessive marker ('s / 's / 's). The Unicode character
+            class covers right single quotation mark variants common in
+            OCR output.
+
+        parse(votes_raw) → list[tuple[str, str]]
+            Entry point. Splits input on sentence boundaries (period or
+            semicolon followed by space + capital letter). Applies
+            Strategy A (_verb_re + _target_re) and Strategy B
+            (_possessive_re) to each sentence. Returns (joiner, target)
+            pairs with names resolved through JusticeMatcher.
+
+        _extract_joiners(text) → list[str]
+            Extracts justice names from text preceding a join verb.
+            Strips trailing "JJ.", "J.", "C.J." title markers. Splits
+            on comma/and separators. Resolves each fragment through
+            JusticeMatcher, filtering EXCLUDE_NAMES.
+
+    NetworkBuilder:
+
+        matcher: JusticeMatcher
+            Same fuzzy matcher instance shared with DissenterJoinParser.
+
+        min_confidence: float (default 0.7)
+            Rows in predictions_extract.csv with confidence below this
+            value are skipped entirely. The confidence column reflects
+            how reliably the pipeline extracted structured data from the
+            OCR text.
+
+        join_parser: DissenterJoinParser
+            Used for Rule 3 (explicit joins) processing of the
+            votes_raw column.
+
+        G: nx.Graph
+            The network being built. Undirected. Nodes are canonical
+            justice surname strings (e.g. "CARPIO", "PERALTA"). Edge
+            attribute "weight" (int) = number of cases where two
+            justices voted together across all three rules. Node
+            attribute "case_count" (int) = number of cases where the
+            justice appeared in any role.
+
+        stats: dict
+            Nine counters tracking the build process:
+            - total_rows — number of rows read from CSV
+            - filtered_rows — rows that passed confidence + volume
+              filters
+            - per_curiam_cases — cases where ponente was "Per curiam" or
+              "PER CURIAM"
+            - empty_ponente — cases where ponente was blank
+            - skipped_low_confidence — rows below min_confidence
+            - skipped_volume_filter — rows outside vol_min/vol_max range
+            - majority_edges_added — edge increments from Rule 1
+            - dissent_edges_added — edge increments from Rule 2
+            - dissent_join_edges_added — edge increments from Rule 3
+
+        _case_counts: Counter
+            Tracks per-justice case appearances. Incremented once per
+            case for the ponente (unless per curiam), once per case for
+            each concurring justice, once per case for each dissenting
+            justice. Written to node attributes after build completes.
+
+        build(csv_path, vol_min=None, vol_max=None) → nx.Graph
+            Main entry point. Reads CSV, applies volume range and
+            confidence filters, calls _process_case for each passing
+            row, then writes case_count to every node. vol_min/vol_max
+            are integers corresponding to SCRA volume numbers (e.g.
+            226-961 covers 1965 to present).
+
+        _process_case(row)
+            Processes a single CSV row through all three rules:
+            - Parses ponente, concurring, dissenting, votes_raw columns
+            - Rule 1: builds majority_bloc = concurring + ponente (if
+              not per curiam), creates C(n,2) pairwise edges
+            - Rule 2: builds dissenter list, creates C(n,2) pairwise
+              edges if 2+ dissenters
+            - Rule 3: calls join_parser.parse(votes_raw) for explicit
+              joins
+
+        _parse_names(semicolon_str) → list[str]
+            Splits semicolon-separated name strings (e.g. "CARPIO;
+            PERALTA; LEONEN") into a list, filtering EXCLUDE_NAMES.
+
+        _add_edge(a, b)
+            Adds or increments a weighted edge. Uses canonical ordering
+            (alphabetically smaller node first) so (CARPIO, PERALTA) and
+            (PERALTA, CARPIO) are the same edge. Self-loops (a == b) are
+            silently ignored.
+
+    Export functions:
+
+        export_edge_list(G, path)
+            CSV with columns [source, target, weight], sorted by weight
+            descending, then alphabetically by source/target.
+
+        export_adjacency_matrix(G, path)
+            NxN CSV matrix with alphabetically sorted node names as both
+            row and column headers. Diagonal is 0. Cell value = edge
+            weight or 0 if no edge.
+
+        export_graphml(G, path)
+            GraphML XML format for import into Gephi, igraph, or other
+            graph analysis tools. Preserves all node/edge attributes.
+
+    ── network/visualize.py ──
+
+    Constants:
+
+        BG_COLOR = "#111111"
+            Near-black background for both PyVis interactive graph and
+            matplotlib static renders. Chosen for maximum contrast with
+            neon node/edge colors.
+
+        COMMUNITY_COLORS: list[str] (12 entries)
+            Neon hex colors optimized for dark backgrounds. Used in
+            community color mode. Indexed by community number modulo 12.
+            Colors: neon pink-red, neon green, neon blue, neon orange,
+            neon purple, neon cyan, neon magenta, neon lime, neon rose,
+            neon teal, neon lavender, neon gold.
+
+    Helper functions:
+
+        _format_label(name, max_line_len=14) → str
+            Inserts a line break (\n) for names longer than
+            max_line_len characters. Prefers breaking at the hyphen
+            nearest the middle (for names like "LEONARDO-DE CASTRO"),
+            then at the space nearest the middle, then returns the name
+            unchanged. Used for both PyVis and matplotlib labels.
+
+        _darken_hex(hex_color, factor=0.3) → str
+            Darkens a hex color by multiplying each RGB channel by
+            (1 - factor). factor=0.15 is used for node fill (slight
+            darkening creates contrast with the full-brightness border),
+            factor=0.10 for matplotlib node fill.
+
+        _hex_to_rgb(hex_color) → tuple[int, int, int]
+            Converts hex color to RGB tuple. Used to construct rgba()
+            strings for vis.js shadow/edge colors and to extract
+            channels for matplotlib alpha compositing.
+
+        _resolve_node_colors(G, node_community, color_mode,
+                             appointed_by_map)
+            → (node_color, node_group_label, legend_entries)
+            Central color resolution function. Returns three dicts:
+            - node_color: {node: hex_color}
+            - node_group_label: {node: group_string} — community index
+              (e.g. "0", "3") or president name (e.g. "Corazon Aquino")
+            - legend_entries: [(label, hex_color), ...] sorted by
+              frequency (most common group first)
+
+            In "community" mode: colors from COMMUNITY_COLORS indexed by
+            Louvain community number. Legend shows top 8 communities
+            with member counts.
+
+            In "appointed_by" mode: colors from PRESIDENT_COLORS in
+            appointed_by.py. Legend shows all presidents present, sorted
+            by count of appointees in the graph.
+
+        _compute_community_positions(G, communities, width=1000,
+                                     height=700) → dict
+            Pre-computes fixed node positions for community layout mode.
+            Algorithm:
+            1. Place n community centroids evenly on a circle of
+               radius 3.0
+            2. Jitter each member around its centroid on a smaller
+               circle of radius 0.5
+            3. Refine with nx.spring_layout (k=2.0/sqrt(N),
+               iterations=150, seed=42, weight="weight")
+            4. Scale coordinates to pixel space with 80px padding
+            Returns {node: (x_px, y_px)} used as fixed positions in
+            vis.js (physics disabled).
+
+    build_pyvis_html() parameters:
+
+        G: nx.Graph
+            Input graph. Must have "weight" edge attribute and
+            "case_count" node attribute.
+
+        edge_threshold: int (default 0)
+            Minimum edge weight to display. Edges with weight below this
+            value are hidden. Higher values declutter the graph by
+            removing weak co-voting links. Typical range: 0-50.
+
+        node_size_by: str (default "weighted_degree")
+            Controls what determines node radius:
+            - "weighted_degree" — sum of all edge weights connected to
+              the node. Justices who co-vote frequently with many others
+              appear larger.
+            - "case_count" — number of cases the justice appeared in
+              (any role). Reflects prolificness rather than
+              connectivity.
+            - "uniform" — all nodes same size. Useful to focus on color
+              and position rather than size.
+            Size is linearly scaled to range [30, 70] vis.js pixels.
+
+        curved_edges: bool (default True)
+            When True, edges render as curved arcs (vis.js "curvedCW"
+            smooth type). Reduces overlap when multiple edges converge
+            on the same node. When False, edges are straight lines.
+
+        opacity_scaling: bool (default True)
+            When True, edge opacity scales linearly from 0.10 (weakest
+            visible edge) to 0.85 (strongest) based on weight/max_weight.
+            Weak edges fade to near-invisible, strong edges are bold.
+            When False, all edges use alpha=0.5.
+
+        layout_mode: str (default "community")
+            - "community" — uses _compute_community_positions for fixed
+              node positions. Physics disabled. Communities appear as
+              distinct spatial clusters. Deterministic across runs.
+            - "physics" — uses vis.js forceAtlas2Based solver. Nodes
+              are draggable. Physics params: gravity=-80,
+              central_gravity=0.005, spring_length=200,
+              spring_strength=0.02, damping=0.4, overlap=1.
+
+        graph_height: int (default 700)
+            Height of the vis.js canvas in pixels. The UI slider allows
+            400-1200px. Width is always 100% of the container.
+
+        color_mode: str (default "community")
+            - "community" — nodes colored by Louvain community
+              assignment. Same-community nodes share a color from
+              COMMUNITY_COLORS.
+            - "appointed_by" — nodes colored by the president who
+              appointed them. Colors from PRESIDENT_COLORS in
+              appointed_by.py.
+
+        appointed_by_map: dict | None (default None)
+            {node_name: president_name} mapping. Built by
+            build_appointed_by_map() in appointed_by.py. Required when
+            color_mode="appointed_by"; ignored otherwise.
+
+    vis.js node properties (set in add_node):
+
+        shape: "circle"
+            Forces labels to render inside the node. Unlike "dot"
+            (which places labels below), "circle" auto-sizes the node
+            to contain the text.
+
+        size: float [30-70]
+            Linearly scaled from the chosen metric. Determines node
+            radius in the vis.js canvas.
+
+        color.background: darkened hex (-15%)
+            Slight darkening creates contrast with the brighter border.
+
+        color.border: full-brightness hex
+            The community or president color at full saturation.
+
+        color.highlight / color.hover
+            On click: background becomes full color, border becomes
+            white. On hover: same. Provides visual feedback.
+
+        font.size: int, max(8, int(size * 0.28))
+            Scales with node size. Minimum 8px ensures readability for
+            small nodes. The 0.28 multiplier was tuned to keep text
+            within the node circle.
+
+        font.color: "#ffffff" (white)
+            High contrast on darkened colored backgrounds.
+
+        font.multi: True
+            Enables multi-line labels (allows \n in label strings).
+
+        shadow.enabled: True
+            Centered glow effect (x=0, y=0). Color is the node's
+            community/president color at 55% opacity. Size=18px creates
+            a soft halo. Gives depth on the dark background.
+
+        borderWidth: 2
+            Visible colored ring around each node.
+
+        title: str
+            Tooltip on hover. Shows: full name, cases count, weighted
+            degree, and either community index or appointing president.
+
+        x, y: int (community mode only)
+            Fixed pixel coordinates from _compute_community_positions.
+
+        physics: False (community mode only)
+            Disables vis.js physics for this node so it stays at the
+            pre-computed position.
+
+    Edge properties (set in add_edge):
+
+        width: float, max(0.5, weight/max_weight * 5)
+            Linearly scaled. Strongest edge = 5px, weakest = 0.5px.
+
+        color.color: rgba string
+            Same-group edges: community/president color with computed
+            alpha. Cross-group edges: grey rgba(100,100,120,alpha).
+
+        color.highlight: "#ffffff"
+            White on selection for visibility.
+
+        shadow (strong edges only, weight/max_weight > 0.4):
+            Glow effect on the top 60% of edges by weight. Same rgba
+            color as the edge, size=6px. Weaker edges have no shadow
+            to reduce visual noise.
+
+    Physics configuration (Interactive Physics mode):
+
+        forceAtlas2Based:
+            gravity: -80 — repulsive force keeping nodes apart
+            central_gravity: 0.005 — weak pull toward center
+            spring_length: 200 — natural edge length in pixels
+            spring_strength: 0.02 — edge spring constant
+            damping: 0.4 — velocity damping for stabilization
+            overlap: 1 — node overlap prevention strength
+
+    build_matplotlib_figure() parameters:
+
+        Same as build_pyvis_html except:
+
+        figsize: tuple (default (14, 10))
+            Figure size in inches. 14x10 gives a landscape aspect ratio
+            suitable for presentations.
+
+        dpi: int (default 150)
+            Resolution for rasterization. 150 DPI at 14x10 inches =
+            2100x1500 pixels. Used for both initial render and PNG
+            export.
+
+        No layout_mode parameter — always uses community-clustered
+        spring layout (same algorithm as _compute_community_positions
+        but operating directly in spring_layout coordinate space
+        rather than pixel space).
+
+        No curved_edges parameter — matplotlib draws straight lines for
+        simplicity and render speed.
+
+        No graph_height parameter — size controlled by figsize.
+
+    Matplotlib rendering layers (drawn in z-order):
+
+        z=0: Edge glow layer
+            For edges with strength > 0.3 (weight/max_weight), a
+            wider (width+3px), faint (alpha*0.3) line is drawn behind
+            the main edge. Creates a soft glow effect on strong
+            connections.
+
+        z=1: Edge lines
+            Main edge lines. Width: max(0.3, weight/max_weight * 3).
+            Opacity: 0.08-0.70 (slightly lower range than PyVis to
+            avoid clutter in static renders). Community-aware coloring
+            (same as PyVis).
+
+        z=1: Node glow layer
+            Faint, enlarged scatter points (1.8x node size) at 15%
+            opacity behind each node. Creates the ambient glow effect
+            around nodes.
+
+        z=2: Nodes
+            nx.draw_networkx_nodes with darkened fill (10%) and full-
+            color edges. Size range [300, 2000] (matplotlib area
+            units, much larger than vis.js pixels).
+
+        z=3: Labels
+            ax.text centered on each node. White bold text with black
+            stroke outline (linewidth=2) via patheffects for
+            readability. Font size: max(5, min(9, area/200)) —
+            scaled to node area.
+
+        Legend (upper left):
+            Up to 12 entries. Dark background (#222222), grey border
+            (#444444), light text (#dddddd). 90% frame opacity.
+
+    export_figure_bytes(fig, fmt="png", dpi=150) → bytes
+        Renders a matplotlib figure to PNG or SVG byte string.
+        bbox_inches="tight" trims whitespace. facecolor preserved
+        from figure (BG_COLOR). Used by the UI to generate
+        downloadable files on-demand.
+
+    ── network/appointed_by.py ──
+
+    Constants:
+
+        PRESIDENT_COLORS: dict[str, str] (26 entries)
+            Maps each appointing authority to a display color.
+            Pre-independence and occupation-era figures get "#888888"
+            (neutral grey, rarely appear in modern graph ranges).
+            Modern Philippine presidents (Magsaysay onward) get
+            distinct neon colors matching the graph aesthetic:
+            - Ramon Magsaysay: warm orange (#f28e2b)
+            - Carlos P. Garcia: soft red (#e15759)
+            - Diosdado Macapagal: teal (#76b7b2)
+            - Ferdinand Marcos: neon pink (#ff4d6a)
+            - Corazon Aquino: gold (#ffcc44)
+            - Fidel V. Ramos: neon green (#4dff91)
+            - Joseph Estrada: neon cyan (#33eeff)
+            - Gloria Macapagal Arroyo: neon purple (#bb66ff)
+            - Benigno Aquino III: neon blue (#4d8bff)
+            - Rodrigo Duterte: neon magenta (#ff55cc)
+            - Bongbong Marcos: neon lime (#ccff44)
+
+        FALLBACK_COLOR = "#666666"
+            Used for justices whose appointing president cannot be
+            determined or is not in PRESIDENT_COLORS.
+
+        _ALIASES: dict[str, str] (8 entries)
+            Manual overrides for graph node names (uppercase surnames)
+            that cannot be matched to CSV full names through
+            algorithmic matching:
+            - "ARANAL-SERENO" → searches for "Sereno"
+            - "CARPIO MORALES" → "Carpio-Morales"
+            - "GRINO-AQUINO" → "Aquino" (Carolina Griño-Aquino)
+            - "LEONARDO-DE CASTRO" → "Teresita de Castro"
+            - "J. LOPEZ" → "Jhosep Lopez"
+            - "M. LOPEZ" → "Mario Lopez"
+            - "REYES, A. JR." → "Andres Reyes"
+            - "REYES, J. JR." → "Jose Reyes Jr."
+
+    Functions:
+
+        _parse_tenure_days(tenure_str) → int
+            Parses strings like "12 years 145 days" into total days
+            (12*365 + 145 = 4525). Uses regex to extract years and
+            days components independently. Returns 0 on empty/invalid
+            input. Used to compare tenure lengths for dual-appointment
+            resolution.
+
+        load_justices_csv(csv_path) → list[dict]
+            Reads ph_sc_justices.csv (UTF-8). Returns list of row
+            dicts with keys: No., Name, Birth Year, Death Year,
+            Position, Succeeded, Tenure Start, Tenure End, Tenure
+            Length, Appointed By. The CSV contains 223 rows, with 26
+            justices appearing twice (once as Associate Justice, once
+            as Chief Justice).
+
+        resolve_appointed_by(rows) → dict[str, str]
+            Groups CSV rows by Name. For justices with one entry,
+            returns their Appointed By directly. For justices with
+            two entries (AJ + CJ), compares Tenure Length via
+            _parse_tenure_days and returns the Appointed By of the
+            longer-tenured position. Returns {full_name: president}.
+
+        build_appointed_by_map(node_names, csv_path) → dict[str, str]
+            Main entry point. Maps graph node names (uppercase
+            surnames like "CARPIO") to appointing presidents. Uses
+            three-tier matching:
+
+            Tier 1 — Manual aliases:
+                Checks _ALIASES for exact match on the uppercased
+                node name. If found, searches CSV names for the alias
+                substring (case-insensitive).
+
+            Tier 2 — All-token containment:
+                Cleans the node name (removes commas, "JR.", "SR."),
+                splits into tokens. Checks if ALL tokens appear in
+                each CSV full name (uppercased). E.g. "PERALTA" is
+                found in "Diosdado Peralta".
+
+            Tier 3 — Last-token unambiguous:
+                Takes the last token (≥4 chars). If exactly one CSV
+                name contains that token, it's a match. Ambiguous
+                matches (multiple candidates) are skipped.
+
+            Returns {node_name: president_name} for matched nodes
+            only. Unmatched nodes are omitted. Typical match rate:
+            90/91 nodes (TINGA is absent from the CSV).

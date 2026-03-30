@@ -83,13 +83,23 @@ def _resolve_node_colors(
             node_color[node] = color
             node_group_label[node] = president
 
-        # Legend: presidents actually present, sorted by frequency
-        from collections import Counter
-        counts = Counter(node_group_label.values())
+        # Legend: presidents actually present, in chronological order
+        _PRESIDENT_ORDER = [
+            "Ferdinand Marcos", "Corazon Aquino", "Fidel V. Ramos",
+            "Joseph Estrada", "Gloria Macapagal Arroyo",
+            "Benigno Aquino III", "Rodrigo Duterte", "Bongbong Marcos",
+        ]
+        present = set(node_group_label.values())
         legend_entries = [
             (pres, PRESIDENT_COLORS.get(pres, FALLBACK_COLOR))
-            for pres, _ in counts.most_common()
+            for pres in _PRESIDENT_ORDER if pres in present
         ]
+        # Append any present presidents not in the ordered list (e.g. older eras)
+        for pres in sorted(present):
+            if pres not in dict(legend_entries):
+                legend_entries.append(
+                    (pres, PRESIDENT_COLORS.get(pres, FALLBACK_COLOR))
+                )
     else:
         for node in G.nodes:
             comm = node_community.get(node, 0)
@@ -108,48 +118,104 @@ def _resolve_node_colors(
     return node_color, node_group_label, legend_entries
 
 
+def _resolve_overlaps(
+    pos: dict, node_sizes: dict, padding: float = 12, iterations: int = 80,
+) -> dict:
+    """Push overlapping nodes apart based on their vis.js pixel sizes."""
+    nodes = list(pos.keys())
+    # Work on mutable copies
+    px = {n: float(pos[n][0]) for n in nodes}
+    py = {n: float(pos[n][1]) for n in nodes}
+    for _ in range(iterations):
+        moved = False
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                a, b = nodes[i], nodes[j]
+                dx = px[b] - px[a]
+                dy = py[b] - py[a]
+                dist = math.sqrt(dx * dx + dy * dy) or 0.1
+                min_dist = (node_sizes.get(a, 40) + node_sizes.get(b, 40)) / 2 + padding
+                if dist < min_dist:
+                    overlap = (min_dist - dist) / 2
+                    ux, uy = dx / dist, dy / dist
+                    px[a] -= ux * overlap
+                    py[a] -= uy * overlap
+                    px[b] += ux * overlap
+                    py[b] += uy * overlap
+                    moved = True
+        if not moved:
+            break
+    return {n: (px[n], py[n]) for n in nodes}
+
+
 def _compute_community_positions(
-    G: nx.Graph, communities: list, width: float = 1000, height: float = 700,
+    G: nx.Graph, communities: list, graph_height: int = 700,
+    node_sizes: dict | None = None,
+    centroid_radius_base: float = 10.0,
+    jitter_scale: float = 0.25,
+    repulsion_k: float = 8.0,
 ) -> dict:
     """Compute node positions with community-clustered starting points.
 
     Places community centroids on a circle, jitters members around each,
-    then refines with spring_layout. Returns {node: (x, y)} in pixel coords.
+    then refines with spring_layout. Resolves overlaps using actual node
+    sizes. Returns {node: (x, y)} in pixel coords.
     """
+    N = max(G.number_of_nodes(), 1)
     n_comm = len(communities)
+
+    # Scale output pixel space with node count so nodes don't crowd
+    avg_size = 50
+    if node_sizes:
+        avg_size = sum(node_sizes.values()) / max(len(node_sizes), 1)
+    spacing = max(28, avg_size * 0.7)
+    width = max(1800, int(N * spacing))
+    height = max(int(graph_height * 1.8), int(N * spacing * 0.7))
+
+    # Large centroid radius keeps communities well separated
+    centroid_radius = centroid_radius_base + n_comm * 1.0
     initial_pos = {}
-    radius = 3.0
     for i, comm in enumerate(communities):
         angle = 2 * math.pi * i / max(n_comm, 1)
-        cx = math.cos(angle) * radius
-        cy = math.sin(angle) * radius
+        cx = math.cos(angle) * centroid_radius
+        cy = math.sin(angle) * centroid_radius
+        # Jitter radius scales with community size
+        jitter_r = 0.6 + math.sqrt(len(comm)) * jitter_scale
         for j, node in enumerate(sorted(comm)):
             jitter_angle = 2 * math.pi * j / max(len(comm), 1)
             initial_pos[node] = (
-                cx + math.cos(jitter_angle) * 0.5,
-                cy + math.sin(jitter_angle) * 0.5,
+                cx + math.cos(jitter_angle) * jitter_r,
+                cy + math.sin(jitter_angle) * jitter_r,
             )
 
+    # Higher k = more repulsion between nodes; prevents overlap
     pos = nx.spring_layout(
         G, pos=initial_pos,
-        k=2.0 / math.sqrt(max(G.number_of_nodes(), 1)),
-        iterations=150, seed=42, weight="weight",
+        k=repulsion_k / math.sqrt(N),
+        iterations=200, seed=42, weight="weight",
     )
 
-    pad = 80
+    # Scale to pixel coordinates
+    pad = 100
     xs = [p[0] for p in pos.values()]
     ys = [p[1] for p in pos.values()]
     x_min, x_max = min(xs), max(xs)
     y_min, y_max = min(ys), max(ys)
     x_range = x_max - x_min or 1
     y_range = y_max - y_min or 1
-    return {
+    pixel_pos = {
         node: (
-            int(pad + (x - x_min) / x_range * (width - 2 * pad)),
-            int(pad + (y - y_min) / y_range * (height - 2 * pad)),
+            pad + (x - x_min) / x_range * (width - 2 * pad),
+            pad + (y - y_min) / y_range * (height - 2 * pad),
         )
         for node, (x, y) in pos.items()
     }
+
+    # Push apart any remaining overlaps using actual node sizes
+    if node_sizes:
+        pixel_pos = _resolve_overlaps(pixel_pos, node_sizes)
+
+    return {n: (int(px), int(py)) for n, (px, py) in pixel_pos.items()}
 
 
 def build_pyvis_html(
@@ -162,6 +228,10 @@ def build_pyvis_html(
     graph_height: int = 700,
     color_mode: str = "community",
     appointed_by_map: dict | None = None,
+    show_community_hulls: bool = False,
+    centroid_radius_base: float = 10.0,
+    jitter_scale: float = 0.25,
+    repulsion_k: float = 8.0,
 ) -> str:
     """Build an interactive pyvis HTML string from a NetworkX graph.
 
@@ -175,6 +245,10 @@ def build_pyvis_html(
         graph_height: Height of the graph canvas in pixels.
         color_mode: "community" for Louvain coloring, "appointed_by" for president coloring.
         appointed_by_map: {node_name: president_name} for appointed_by mode.
+        show_community_hulls: Draw convex hull boundaries around Louvain communities.
+        centroid_radius_base: Base radius for community centroid placement.
+        jitter_scale: Scale factor for intra-community member jitter.
+        repulsion_k: Spring layout repulsion constant.
 
     Returns:
         HTML string suitable for st.components.v1.html().
@@ -190,17 +264,11 @@ def build_pyvis_html(
             node_community[node] = idx
 
     # --- Resolve colors ---
-    node_color, node_group_label, _ = _resolve_node_colors(
+    node_color, node_group_label, legend_entries = _resolve_node_colors(
         G, node_community, color_mode, appointed_by_map,
     )
 
-    # --- Layout ---
-    if layout_mode == "community":
-        positions = _compute_community_positions(G, communities)
-    else:
-        positions = None
-
-    # --- Compute node sizes ---
+    # --- Compute node sizes (before layout so positions account for size) ---
     if node_size_by == "weighted_degree":
         raw = dict(G.degree(weight="weight"))
     elif node_size_by == "case_count":
@@ -216,6 +284,19 @@ def build_pyvis_html(
             return (min_size + max_size) / 2
         return min_size + (v / max_val) * (max_size - min_size)
 
+    node_sizes = {n: scale(raw[n]) for n in G.nodes}
+
+    # --- Layout ---
+    if layout_mode == "community":
+        positions = _compute_community_positions(
+            G, communities, graph_height, node_sizes,
+            centroid_radius_base=centroid_radius_base,
+            jitter_scale=jitter_scale,
+            repulsion_k=repulsion_k,
+        )
+    else:
+        positions = None
+
     # --- Build pyvis Network ---
     height_str = f"{graph_height}px"
     net = Network(height=height_str, width="100%", bgcolor=BG_COLOR, font_color="#ffffff")
@@ -226,26 +307,63 @@ def build_pyvis_html(
             opts["edges"] = {"smooth": {"enabled": True, "type": "curvedCW"}}
         net.set_options(json.dumps(opts))
     else:
-        net.force_atlas_2based(
-            gravity=-80, central_gravity=0.005, spring_length=200,
-            spring_strength=0.02, damping=0.4, overlap=1,
-        )
+        # Map community separation sliders to physics engine params:
+        #   centroid_radius_base → gravity (more radius = stronger repulsion)
+        #   jitter_scale → spring_length (more jitter = longer springs)
+        #   repulsion_k → spring_strength inverse (more repulsion = weaker springs)
+        phys_gravity = -30 - centroid_radius_base * 5          # 10→-80, 30→-180
+        phys_spring_len = int(100 + jitter_scale * 400)        # 0.25→200, 1.0→500
+        phys_spring_str = max(0.005, 0.04 - repulsion_k * 0.002)  # 8→0.024, 20→0.005
+        physics_opts = {
+            "physics": {
+                "forceAtlas2Based": {
+                    "gravitationalConstant": phys_gravity,
+                    "centralGravity": 0.01,
+                    "springLength": phys_spring_len,
+                    "springConstant": phys_spring_str,
+                    "avoidOverlap": 0.8,
+                },
+                "solver": "forceAtlas2Based",
+                "damping": 0.93,
+                "stabilization": {
+                    "enabled": True,
+                    "iterations": 500,
+                    "updateInterval": 25,
+                },
+                "maxVelocity": 15,
+            },
+        }
         if curved_edges:
-            net.set_edge_smooth("curvedCW")
+            physics_opts["edges"] = {"smooth": {"enabled": True, "type": "curvedCW"}}
+        net.set_options(json.dumps(physics_opts))
+
+    # --- Resolve display labels (with disambiguation for duplicates) ---
+    display_names = {}
+    for node in G.nodes:
+        display_names[node] = G.nodes[node].get("display_name", node)
+    # Find duplicates and add first initial to distinguish
+    from collections import Counter as _Counter
+    dn_counts = _Counter(display_names.values())
+    for node, dn in list(display_names.items()):
+        if dn_counts[dn] > 1:
+            # Add first letter of the full name as initial
+            first_char = node[0] if node else ""
+            display_names[node] = f"{first_char}. {dn}"
 
     # --- Add nodes ---
     for node in G.nodes:
         color = node_color[node]
         group_label = node_group_label[node]
         r, g, b = _hex_to_rgb(color)
-        size = scale(raw[node])
+        size = node_sizes[node]
         case_count = G.nodes[node].get("case_count", 0)
         degree = G.degree(node, weight="weight")
+        comm_idx = node_community.get(node, "?")
         if color_mode == "appointed_by":
-            title = f"{node}\nAppointed by: {group_label}\nCases: {case_count}\nDegree: {degree}"
+            title = f"{node}\nAppointed by: {group_label}\nCommunity: {comm_idx}\nCases: {case_count}\nDegree: {degree}"
         else:
             title = f"{node}\nCases: {case_count}\nDegree: {degree}\nCommunity: {group_label}"
-        label = _format_label(node)
+        label = _format_label(display_names[node])
         font_size = max(8, int(size * 0.28))
         node_kwargs = dict(
             label=label, title=title, size=size, shape="circle",
@@ -307,6 +425,50 @@ def build_pyvis_html(
 
     html = net.generate_html()
 
+    # Inject fixed-position legend overlay
+    if legend_entries:
+        legend_title = "Appointed By" if color_mode == "appointed_by" else "Communities"
+        legend_items = ""
+        for lbl, color in legend_entries:
+            legend_items += (
+                f'<div style="margin-bottom:3px;">'
+                f'<span style="display:inline-block;width:12px;height:12px;'
+                f'border-radius:2px;margin-right:6px;vertical-align:middle;'
+                f'background:{color};"></span>'
+                f'<span style="color:#ddd;font-size:11px;font-family:arial;'
+                f'vertical-align:middle;">{lbl}</span></div>'
+            )
+        legend_html = (
+            f'<div style="position:fixed;top:10px;right:10px;z-index:1000;'
+            f'background:rgba(17,17,17,0.85);border:1px solid #444;'
+            f'border-radius:6px;padding:10px 14px;max-height:80vh;'
+            f'overflow-y:auto;">'
+            f'<div style="color:#fff;font-weight:bold;margin-bottom:6px;'
+            f'font-size:13px;font-family:arial;">{legend_title}</div>'
+            f'{legend_items}</div>'
+        )
+        html = html.replace("</body>", legend_html + "</body>")
+
+    # Inject script that disables physics after stabilization completes.
+    # ForceAtlas2 lacks angular damping — nodes orbit endlessly if physics
+    # stays enabled.  Freezing after stabilization gives a clean layout
+    # while still allowing manual drag-and-drop repositioning.
+    stabilize_script = """
+<script>
+(function() {
+    var checkNet = setInterval(function() {
+        if (typeof network !== 'undefined') {
+            clearInterval(checkNet);
+            network.once('stabilizationIterationsDone', function() {
+                network.setOptions({physics: {enabled: false}});
+            });
+        }
+    }, 50);
+})();
+</script>
+"""
+    html = html.replace("</body>", stabilize_script + "</body>")
+
     # Inject resize observer so the vis.js canvas auto-fills its container
     resize_script = """
 <script>
@@ -321,6 +483,144 @@ def build_pyvis_html(
 </script>
 """
     html = html.replace("</body>", resize_script + "</body>")
+
+    # Inject convex hull overlay for community boundaries
+    if show_community_hulls:
+        # Build community membership JSON: {nodeId: communityIndex}
+        comm_data = {node: node_community[node] for node in G.nodes}
+        # Community colors list
+        comm_colors = COMMUNITY_COLORS
+        hull_script = """
+<script>
+(function() {
+    var communityData = """ + json.dumps(comm_data) + """;
+    var communityColors = """ + json.dumps(comm_colors) + """;
+
+    function cross(O, A, B) {
+        return (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0]);
+    }
+
+    function convexHull(points) {
+        if (points.length <= 2) return points.slice();
+        points.sort(function(a, b) { return a[0] - b[0] || a[1] - b[1]; });
+        var lower = [];
+        for (var i = 0; i < points.length; i++) {
+            while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], points[i]) <= 0)
+                lower.pop();
+            lower.push(points[i]);
+        }
+        var upper = [];
+        for (var i = points.length - 1; i >= 0; i--) {
+            while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], points[i]) <= 0)
+                upper.pop();
+            upper.push(points[i]);
+        }
+        upper.pop();
+        lower.pop();
+        return lower.concat(upper);
+    }
+
+    function hexToRgba(hex, alpha) {
+        hex = hex.replace('#', '');
+        var r = parseInt(hex.substring(0, 2), 16);
+        var g = parseInt(hex.substring(2, 4), 16);
+        var b = parseInt(hex.substring(4, 6), 16);
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+    }
+
+    function drawRoundedHull(ctx, hull, pad) {
+        if (hull.length < 2) return;
+        if (hull.length === 2) {
+            ctx.beginPath();
+            ctx.moveTo(hull[0][0], hull[0][1]);
+            ctx.lineTo(hull[1][0], hull[1][1]);
+            ctx.stroke();
+            return;
+        }
+        ctx.beginPath();
+        for (var i = 0; i < hull.length; i++) {
+            var a = hull[(i - 1 + hull.length) % hull.length];
+            var b = hull[i];
+            var c = hull[(i + 1) % hull.length];
+            var ab = [b[0] - a[0], b[1] - a[1]];
+            var bc = [c[0] - b[0], c[1] - b[1]];
+            var labAB = Math.sqrt(ab[0]*ab[0] + ab[1]*ab[1]) || 1;
+            var labBC = Math.sqrt(bc[0]*bc[0] + bc[1]*bc[1]) || 1;
+            var r = Math.min(pad * 0.6, labAB * 0.4, labBC * 0.4);
+            var p1 = [b[0] - ab[0]/labAB * r, b[1] - ab[1]/labAB * r];
+            var p2 = [b[0] + bc[0]/labBC * r, b[1] + bc[1]/labBC * r];
+            if (i === 0) ctx.moveTo(p1[0], p1[1]);
+            else ctx.lineTo(p1[0], p1[1]);
+            ctx.quadraticCurveTo(b[0], b[1], p2[0], p2[1]);
+        }
+        ctx.closePath();
+    }
+
+    var checkInterval = setInterval(function() {
+        if (typeof network !== 'undefined') {
+            clearInterval(checkInterval);
+
+            network.on('beforeDrawing', function(ctx) {
+                var positions = network.getPositions();
+                var communities = {};
+                for (var nodeId in communityData) {
+                    var commIdx = communityData[nodeId];
+                    if (!communities[commIdx]) communities[commIdx] = [];
+                    var pos = positions[nodeId];
+                    if (pos) communities[commIdx].push([pos.x, pos.y]);
+                }
+                for (var commIdx in communities) {
+                    var members = communities[commIdx];
+                    if (members.length < 2) continue;
+                    var cx = 0, cy = 0;
+                    for (var i = 0; i < members.length; i++) {
+                        cx += members[i][0]; cy += members[i][1];
+                    }
+                    cx /= members.length; cy /= members.length;
+                    var padding = 55;
+                    var expanded = [];
+                    for (var i = 0; i < members.length; i++) {
+                        var dx = members[i][0] - cx;
+                        var dy = members[i][1] - cy;
+                        var dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist > 0) {
+                            expanded.push([
+                                members[i][0] + (dx/dist) * padding,
+                                members[i][1] + (dy/dist) * padding
+                            ]);
+                        } else {
+                            expanded.push([members[i][0] + padding, members[i][1]]);
+                        }
+                    }
+                    var hull = convexHull(expanded);
+                    if (hull.length < 2) continue;
+                    var colorIdx = parseInt(commIdx) % communityColors.length;
+                    var color = communityColors[colorIdx];
+                    drawRoundedHull(ctx, hull, padding);
+                    ctx.fillStyle = hexToRgba(color, 0.06);
+                    ctx.fill();
+                    ctx.strokeStyle = hexToRgba(color, 0.4);
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([10, 5]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    // Community label near centroid
+                    ctx.fillStyle = hexToRgba(color, 0.5);
+                    ctx.font = '12px arial';
+                    ctx.fillText('C' + commIdx, cx - 8, cy - padding - 10);
+                }
+            });
+
+            // Force redraw so hulls appear immediately (needed when
+            // physics is disabled — no simulation frames to trigger it)
+            setTimeout(function() { network.redraw(); }, 50);
+        }
+    }, 100);
+})();
+</script>
+"""
+        html = html.replace("</body>", hull_script + "</body>")
+
     return html
 
 
@@ -473,10 +773,21 @@ def build_matplotlib_figure(
         linewidths=2.0,
     )
 
+    # Resolve display names (same logic as PyVis)
+    display_names_mpl = {}
+    for node in node_list:
+        display_names_mpl[node] = G.nodes[node].get("display_name", node)
+    from collections import Counter as _CntMpl
+    dn_counts_mpl = _CntMpl(display_names_mpl.values())
+    for node, dn in list(display_names_mpl.items()):
+        if dn_counts_mpl[dn] > 1:
+            first_char = node[0] if node else ""
+            display_names_mpl[node] = f"{first_char}. {dn}"
+
     # Labels inside nodes
     for node in node_list:
         x, y = pos[node]
-        label = _format_label(node, max_line_len=14)
+        label = _format_label(display_names_mpl[node], max_line_len=14)
         area = scale(raw[node])
         font_size = max(5, min(9, area / 200))
         ax.text(
