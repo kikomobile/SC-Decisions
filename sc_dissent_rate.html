@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Philippine Supreme Court — Dissent Rate Over Time</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #ffffff;
+    color: #1a1a1a;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .container {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 40px 32px 60px;
+  }
+  .header { margin-bottom: 28px; }
+  .header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 32px;
+    color: #111;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  .header .subtitle {
+    font-size: 14px;
+    color: #777;
+    font-weight: 400;
+  }
+  .combined-wrapper {
+    position: relative;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 16px;
+    padding: 20px 20px 16px 20px;
+    margin-bottom: 20px;
+  }
+  .legend-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    padding: 0 12px 10px;
+    font-size: 12px;
+    align-items: center;
+  }
+  .legend-bar.below {
+    padding: 10px 12px 0;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    opacity: 1;
+    transition: opacity 0.2s;
+    user-select: none;
+  }
+  .legend-swatch.square {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .legend-label { color: #555; }
+  .section-label {
+    font-size: 10px;
+    color: #999;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 0 12px;
+    margin-bottom: 2px;
+  }
+  svg text { font-family: 'DM Sans', sans-serif; }
+  .axis-label { fill: #888; font-size: 11px; }
+  .axis-title {
+    fill: #999;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .grid line { stroke: #eee; stroke-dasharray: 2,3; }
+  .grid .domain { display: none; }
+  .pres-bar { opacity: 0.18; }
+  .pres-label-text {
+    font-size: 9px;
+    fill: #999;
+    font-weight: 500;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 12px;
+    line-height: 1.6;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 10;
+    min-width: 200px;
+  }
+  .tooltip .tt-title {
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .tooltip .tt-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+  }
+  .tooltip .tt-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .tooltip .tt-label { color: #555; flex: 1; }
+  .tooltip .tt-value {
+    color: #111;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .tooltip .tt-cases {
+    color: #999;
+    font-size: 11px;
+    margin-left: 4px;
+    font-weight: 400;
+  }
+  .note-bar {
+    display: flex;
+    gap: 20px;
+    padding: 0 4px;
+    font-size: 12px;
+    color: #aaa;
+    flex-wrap: wrap;
+  }
+  .note-bar span { white-space: nowrap; }
+  .panel-divider {
+    height: 1px;
+    background: #e8e8e8;
+    margin: 0 12px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Court-wide Dissent Rate Over Time</h1>
+    <p class="subtitle">Philippine Supreme Court · Rolling 1-year windows · En Banc decisions · 1986–2025</p>
+  </div>
+
+  <div class="combined-wrapper" id="combined">
+    <div class="section-label">En Banc Dissent Rate (strict)</div>
+    <div id="chart"></div>
+
+    <div class="panel-divider"></div>
+
+    <div style="height:4px"></div>
+    <div class="section-label">Court Composition by Appointing President</div>
+    <div id="justice-chart"></div>
+    <div class="legend-bar below" id="justice-legend"></div>
+
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+
+  <div class="note-bar">
+    <span>Background shading = presidential terms</span>
+  </div>
+</div>
+
+<script>
+const csv = `window_start,window_end,EB_cases,EB_rate
+1986-06-29,1987-06-29,5/141,3.5%
+1987-06-29,1988-06-28,6/125,4.8%
+1988-06-28,1989-06-28,12/81,14.8%
+1989-06-28,1990-06-28,10/103,9.7%
+1990-06-28,1991-06-28,11/136,8.1%
+1991-06-28,1992-06-27,25/169,14.8%
+1992-06-27,1993-06-27,7/106,6.6%
+1993-06-27,1994-06-27,10/110,9.1%
+1994-06-27,1995-06-27,14/149,9.4%
+1995-06-27,1996-06-26,10/82,12.2%
+1996-06-26,1997-06-26,12/98,12.2%
+1997-06-26,1998-06-26,7/102,6.9%
+1998-06-26,1999-06-26,3/173,1.7%
+1999-06-26,2000-06-25,12/292,4.1%
+2000-06-25,2001-06-25,13/274,4.7%
+2001-06-25,2002-06-25,11/289,3.8%
+2002-06-25,2003-06-25,3/294,1.0%
+2003-06-25,2004-06-24,10/317,3.1%
+2004-06-24,2005-06-24,5/163,3.1%
+2005-06-24,2006-06-24,2/154,1.3%
+2006-06-24,2007-06-24,2/174,1.1%
+2007-06-24,2008-06-23,1/187,0.5%
+2008-06-23,2009-06-23,9/219,4.1%
+2009-06-23,2010-06-23,17/201,8.5%
+2010-06-23,2011-06-23,11/145,7.6%
+2011-06-23,2012-06-22,5/109,4.6%
+2012-06-22,2013-06-22,8/133,6.0%
+2013-06-22,2014-06-22,4/96,4.2%
+2014-06-22,2015-06-22,3/93,3.2%
+2015-06-22,2016-06-21,2/84,2.4%
+2016-06-21,2017-06-21,3/107,2.8%
+2017-06-21,2018-06-21,2/105,1.9%
+2018-06-21,2019-06-21,1/90,1.1%
+2019-06-21,2020-06-20,0/102,0.0%
+2020-06-20,2021-06-20,1/144,0.7%
+2021-06-20,2022-06-20,1/60,1.7%
+2022-06-20,2023-06-20,0/99,0.0%
+2023-06-20,2024-06-19,0/101,0.0%
+2024-06-19,2025-06-19,0/45,0.0%`;
+
+const rows = csv.trim().split('\n').slice(1).map(line => {
+  const c = line.split(',');
+  return {
+    start: new Date(c[0]), end: new Date(c[1]),
+    mid: new Date((new Date(c[0]).getTime() + new Date(c[1]).getTime()) / 2),
+    eb_cases: c[2], eb_rate: parseFloat(c[3]),
+  };
+});
+
+const presidents = [
+  { name: 'C. Aquino', start: '1986-02-25', end: '1992-06-30', color: '#facc15' },
+  { name: 'F.V. Ramos', start: '1992-06-30', end: '1998-06-30', color: '#34d399' },
+  { name: 'J. Estrada', start: '1998-06-30', end: '2001-01-20', color: '#67e8f9' },
+  { name: 'G.M. Arroyo', start: '2001-01-20', end: '2010-06-30', color: '#c4b5fd' },
+  { name: 'B. Aquino III', start: '2010-06-30', end: '2016-06-30', color: '#93c5fd' },
+  { name: 'R. Duterte', start: '2016-06-30', end: '2022-06-30', color: '#f9a8d4' },
+  { name: 'B. Marcos Jr.', start: '2022-06-30', end: '2028-06-30', color: '#fde68a' },
+].map(p => ({ ...p, start: new Date(p.start), end: new Date(p.end) }));
+
+const appointeeColors = {
+  'F. Marcos': '#e879a0',
+  'C. Aquino': '#eab308',
+  'F.V. Ramos': '#10b981',
+  'J. Estrada': '#22b8cf',
+  'G.M. Arroyo': '#8b5cf6',
+  'B. Aquino III': '#3b82f6',
+  'R. Duterte': '#ec4899',
+  'B. Marcos Jr.': '#f59e0b',
+};
+
+const justiceData = [
+  {year:1986, 'F. Marcos':5, 'C. Aquino':10},
+  {year:1987, 'F. Marcos':3, 'C. Aquino':12},
+  {year:1988, 'F. Marcos':2, 'C. Aquino':13},
+  {year:1989, 'F. Marcos':1, 'C. Aquino':14},
+  {year:1990, 'C. Aquino':15},
+  {year:1991, 'C. Aquino':15},
+  {year:1992, 'C. Aquino':13, 'F.V. Ramos':2},
+  {year:1993, 'C. Aquino':11, 'F.V. Ramos':4},
+  {year:1994, 'C. Aquino':8, 'F.V. Ramos':7},
+  {year:1995, 'C. Aquino':6, 'F.V. Ramos':9},
+  {year:1996, 'C. Aquino':4, 'F.V. Ramos':11},
+  {year:1997, 'C. Aquino':3, 'F.V. Ramos':12},
+  {year:1998, 'C. Aquino':2, 'F.V. Ramos':10, 'J. Estrada':3},
+  {year:1999, 'C. Aquino':1, 'F.V. Ramos':8, 'J. Estrada':6},
+  {year:2000, 'F.V. Ramos':7, 'J. Estrada':8},
+  {year:2001, 'F.V. Ramos':5, 'J. Estrada':6, 'G.M. Arroyo':4},
+  {year:2002, 'F.V. Ramos':4, 'J. Estrada':4, 'G.M. Arroyo':7},
+  {year:2003, 'F.V. Ramos':3, 'J. Estrada':3, 'G.M. Arroyo':9},
+  {year:2004, 'F.V. Ramos':2, 'J. Estrada':2, 'G.M. Arroyo':11},
+  {year:2005, 'F.V. Ramos':1, 'J. Estrada':2, 'G.M. Arroyo':12},
+  {year:2006, 'J. Estrada':1, 'G.M. Arroyo':14},
+  {year:2007, 'J. Estrada':1, 'G.M. Arroyo':14},
+  {year:2008, 'G.M. Arroyo':15},
+  {year:2009, 'G.M. Arroyo':15},
+  {year:2010, 'G.M. Arroyo':12, 'B. Aquino III':3},
+  {year:2011, 'G.M. Arroyo':10, 'B. Aquino III':5},
+  {year:2012, 'G.M. Arroyo':8, 'B. Aquino III':7},
+  {year:2013, 'G.M. Arroyo':7, 'B. Aquino III':8},
+  {year:2014, 'G.M. Arroyo':5, 'B. Aquino III':10},
+  {year:2015, 'G.M. Arroyo':4, 'B. Aquino III':11},
+  {year:2016, 'G.M. Arroyo':2, 'B. Aquino III':10, 'R. Duterte':3},
+  {year:2017, 'G.M. Arroyo':1, 'B. Aquino III':7, 'R. Duterte':7},
+  {year:2018, 'B. Aquino III':5, 'R. Duterte':10},
+  {year:2019, 'B. Aquino III':4, 'R. Duterte':11},
+  {year:2020, 'B. Aquino III':2, 'R. Duterte':13},
+  {year:2021, 'B. Aquino III':1, 'R. Duterte':14},
+  {year:2022, 'R. Duterte':12, 'B. Marcos Jr.':3},
+  {year:2023, 'R. Duterte':9, 'B. Marcos Jr.':6},
+  {year:2024, 'R. Duterte':7, 'B. Marcos Jr.':8},
+  {year:2025, 'R. Duterte':5, 'B. Marcos Jr.':10},
+];
+
+const presNames = ['F. Marcos','C. Aquino','F.V. Ramos','J. Estrada','G.M. Arroyo','B. Aquino III','R. Duterte','B. Marcos Jr.'];
+
+// ─── SHARED SCALES ───
+const xDomain = [new Date('1986-01-01'), new Date('2026-01-01')];
+const margin = { top: 12, right: 52, bottom: 6, left: 52 };
+const W = 1260, H = 380;
+const iw = W - margin.left - margin.right;
+const ih = H - margin.top - margin.bottom;
+const x = d3.scaleTime().domain(xDomain).range([0, iw]);
+
+const lineColor = '#1a1a1a';
+
+function drawPresBands(group, height) {
+  presidents.forEach(p => {
+    const x0 = Math.max(x(p.start), 0);
+    const x1 = Math.min(x(p.end), iw);
+    if (x1 > x0) {
+      group.append('rect').attr('class', 'pres-bar')
+        .attr('x', x0).attr('y', 0)
+        .attr('width', x1 - x0).attr('height', height)
+        .attr('fill', p.color).attr('rx', 2);
+    }
+  });
+}
+
+// ─── MAIN CHART ───
+const svg = d3.select('#chart').append('svg')
+  .attr('viewBox', `0 0 ${W} ${H}`)
+  .attr('preserveAspectRatio', 'xMidYMid meet')
+  .style('width', '100%').style('display', 'block');
+
+const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+const y = d3.scaleLinear().domain([0, 16]).range([ih, 0]);
+
+drawPresBands(g, ih);
+
+presidents.forEach(p => {
+  const x0 = Math.max(x(p.start), 0);
+  const x1 = Math.min(x(p.end), iw);
+  if (x1 > x0) {
+    g.append('text').attr('class', 'pres-label-text')
+      .attr('x', (x0 + x1) / 2).attr('y', 14)
+      .attr('text-anchor', 'middle').text(p.name);
+  }
+});
+
+g.append('g').attr('class', 'grid')
+  .call(d3.axisLeft(y).ticks(8).tickSize(-iw).tickFormat(''));
+
+g.append('g')
+  .call(d3.axisLeft(y).ticks(8).tickFormat(d => d + '%'))
+  .selectAll('text').attr('class', 'axis-label');
+g.selectAll('.domain').remove();
+
+svg.append('text').attr('class', 'axis-title')
+  .attr('transform', 'rotate(-90)')
+  .attr('x', -(H / 2)).attr('y', 14)
+  .attr('text-anchor', 'middle').text('Dissent Rate');
+
+// Line
+const lineGen = d3.line()
+  .x(d => x(d.mid)).y(d => y(d.eb_rate))
+  .curve(d3.curveMonotoneX).defined(d => !isNaN(d.eb_rate));
+
+// Area fill
+const areaGen = d3.area()
+  .x(d => x(d.mid)).y0(ih).y1(d => y(d.eb_rate))
+  .curve(d3.curveMonotoneX).defined(d => !isNaN(d.eb_rate));
+
+g.append('path')
+  .datum(rows.filter(d => !isNaN(d.eb_rate)))
+  .attr('fill', lineColor).attr('opacity', 0.06).attr('d', areaGen);
+
+g.append('path')
+  .datum(rows.filter(d => !isNaN(d.eb_rate)))
+  .attr('fill', 'none').attr('stroke', lineColor)
+  .attr('stroke-width', 2.5).attr('d', lineGen);
+
+// Tooltip
+const tooltipDiv = document.getElementById('tooltip');
+const bisect = d3.bisector(d => d.mid).left;
+const hoverLine = g.append('line')
+  .attr('stroke', '#bbb').attr('stroke-width', 1)
+  .attr('stroke-dasharray', '3,3').attr('y1', 0).attr('y2', ih).style('opacity', 0);
+const dot = g.append('circle').attr('r', 5).attr('fill', lineColor)
+  .attr('stroke', '#fff').attr('stroke-width', 2).style('opacity', 0);
+
+svg.append('rect')
+  .attr('transform', `translate(${margin.left},${margin.top})`)
+  .attr('width', iw).attr('height', ih).attr('fill', 'transparent')
+  .on('mousemove', function(event) {
+    const [mx] = d3.pointer(event, this);
+    const date = x.invert(mx);
+    const i = Math.min(bisect(rows, date), rows.length - 1);
+    const d = rows[i];
+    hoverLine.attr('x1', x(d.mid)).attr('x2', x(d.mid)).style('opacity', 1);
+    dot.attr('cx', x(d.mid)).attr('cy', y(d.eb_rate)).style('opacity', 1);
+    tooltipDiv.innerHTML = `<div class="tt-title">${d.start.getFullYear()}–${d.end.getFullYear()}</div>
+      <div class="tt-row">
+        <span class="tt-dot" style="background:${lineColor}"></span>
+        <span class="tt-label">En Banc dissent rate</span>
+        <span class="tt-value">${d.eb_rate.toFixed(1)}%<span class="tt-cases">${d.eb_cases}</span></span>
+      </div>`;
+    tooltipDiv.style.opacity = 1;
+    const wr = document.getElementById('combined').getBoundingClientRect();
+    const sr = svg.node().getBoundingClientRect();
+    const px = sr.left + (x(d.mid) + margin.left) * sr.width / W - wr.left;
+    tooltipDiv.style.left = Math.min(px + 12, wr.width - 240) + 'px';
+    tooltipDiv.style.top = '56px';
+  })
+  .on('mouseleave', () => {
+    hoverLine.style('opacity', 0);
+    dot.style('opacity', 0);
+    tooltipDiv.style.opacity = 0;
+  });
+
+// ─── JUSTICE STACKED BAR ───
+const jm = { top: 4, right: 52, bottom: 32, left: 52 };
+const JH = 180;
+const jih = JH - jm.top - jm.bottom;
+
+const jsvg = d3.select('#justice-chart').append('svg')
+  .attr('viewBox', `0 0 ${W} ${JH}`)
+  .attr('preserveAspectRatio', 'xMidYMid meet')
+  .style('width', '100%').style('display', 'block');
+
+const jg = jsvg.append('g').attr('transform', `translate(${jm.left},${jm.top})`);
+const barWidth = (iw / (2026 - 1986)) * 0.75;
+const jy = d3.scaleLinear().domain([0, 15]).range([jih, 0]);
+
+drawPresBands(jg, jih);
+
+jg.append('g').attr('class', 'grid')
+  .call(d3.axisLeft(jy).ticks(3).tickSize(-iw).tickFormat(''))
+  .lower();
+
+const stack = d3.stack().keys(presNames).value((d, key) => d[key] || 0);
+const stacked = stack(justiceData);
+
+stacked.forEach(layer => {
+  const col = appointeeColors[layer.key];
+  if (!col) return;
+  jg.selectAll(null).data(layer).enter().append('rect')
+    .attr('x', d => x(new Date(d.data.year, 6, 1)) - barWidth / 2)
+    .attr('y', d => jy(d[1]))
+    .attr('width', barWidth)
+    .attr('height', d => Math.max(0, jy(d[0]) - jy(d[1])))
+    .attr('fill', col).attr('opacity', 0.8).attr('rx', 2);
+});
+
+jg.append('g').attr('transform', `translate(0,${jih})`)
+  .call(d3.axisBottom(x).ticks(d3.timeYear.every(5)).tickFormat(d3.timeFormat('%Y')))
+  .selectAll('text').attr('class', 'axis-label');
+
+jg.append('g')
+  .call(d3.axisLeft(jy).ticks(3).tickFormat(d => d))
+  .selectAll('text').attr('class', 'axis-label');
+
+jg.selectAll('.domain').remove();
+
+jsvg.append('text').attr('class', 'axis-title')
+  .attr('transform', 'rotate(-90)')
+  .attr('x', -(JH / 2)).attr('y', 14)
+  .attr('text-anchor', 'middle').text('Justices');
+
+// Justice legend (below chart)
+const jLegend = document.getElementById('justice-legend');
+presNames.forEach(name => {
+  const col = appointeeColors[name];
+  if (!col) return;
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  const sw = document.createElement('div');
+  sw.className = 'legend-swatch square';
+  sw.style.background = col;
+  const lb = document.createElement('span');
+  lb.className = 'legend-label'; lb.textContent = name;
+  item.appendChild(sw); item.appendChild(lb);
+  jLegend.appendChild(item);
+});
+</script>
+</body>
+</html>
