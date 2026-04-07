@@ -24,13 +24,15 @@ from regex_improve.detection.label_inspector import (
     parse_lookup_input, lookup_cases, format_case_text, compile_results,
 )
 import networkx as nx
-from network.build_network import NetworkBuilder, export_edge_list, export_adjacency_matrix, export_graphml
+from network.build_network import NetworkBuilder, export_edge_list, export_adjacency_matrix, export_graphml, extract_display_name
 from network.visualize import build_pyvis_html, get_community_summary, build_matplotlib_figure, export_figure_bytes
 from network.appointed_by import build_appointed_by_map, PRESIDENT_COLORS, FALLBACK_COLOR
 from network.temporal import (
     load_cases, load_tenures, TemporalAnalyzer,
     TemporalNetwork, build_temporal_network_plotly, compute_global_bounds,
     build_tenure_timeline_plotly,
+    extract_cross_community_cases, compile_cross_community_summary,
+    court_dissent_rate_timeline, DISSENT_RATE_COMBOS,
 )
 from regex_improve.detection.csv_extractor import JusticeMatcher
 
@@ -79,6 +81,14 @@ if "tn_tenures" not in st.session_state:
     st.session_state.tn_tenures = None
 if "tn_appointed_by" not in st.session_state:
     st.session_state.tn_appointed_by = None
+if "ta_windowed_data" not in st.session_state:
+    st.session_state.ta_windowed_data = None  # dict of metric_name -> DataFrame
+if "ta_windows" not in st.session_state:
+    st.session_state.ta_windows = []  # list of window_center dates
+if "ta_step" not in st.session_state:
+    st.session_state.ta_step = 0
+if "ta_params" not in st.session_state:
+    st.session_state.ta_params = {}  # stored compute params for export
 
 # ---------------------------------------------------------------------------
 # Sidebar — Global Settings
@@ -439,8 +449,8 @@ with tab_network:
         help="Only include cases with confidence >= this value")
     build_net = bc4.button("Build Network", key="run_network", type="primary")
 
-    # --- Case filters ---
-    fc1, fc2 = st.columns(2)
+    # --- Case filters (shared across all sub-tabs) ---
+    fc1, fc2, fc3 = st.columns([2, 2, 1])
     division_all = ["EN BANC", "FIRST DIVISION", "SECOND DIVISION", "THIRD DIVISION"]
     division_filter = fc1.multiselect("Division Filter", division_all, default=division_all,
         key="net_division_filter",
@@ -449,6 +459,8 @@ with tab_network:
     dissent_label = fc2.selectbox("Dissent Filter", list(dissent_options.keys()), key="net_dissent_filter",
         help="All: no filter. Unanimous: only cases with no dissenters. With Dissent: only cases where at least one justice dissented")
     dissent_filter = dissent_options[dissent_label]
+    treat_no_part = fc3.checkbox("Treat no_part as dissent", value=False, key="net_no_part",
+        help="Reclassify 'took no part' justices as dissenters (~5× more signal). Applies to all sub-tabs.")
 
     # --- Build logic ---
     if build_net:
@@ -469,6 +481,7 @@ with tab_network:
                 G = builder.build(
                     str(csv_path), vol_min=vol_start, vol_max=vol_end,
                     division_filter=div_filt, dissent_filter=dissent_filter,
+                    treat_no_part_as_dissent=treat_no_part,
                 )
                 st.session_state.network_graph = G
                 st.session_state.network_stats = builder.stats
@@ -692,28 +705,66 @@ with tab_network:
         t_min_dissents = tc3.slider("Min Dissents", 1, 20, 5, 1, key="t_min_dissents",
             help="Only include justices with at least this many dissents in affinity metrics")
 
-        tc4, tc5, tc6 = st.columns(3)
-        t_no_part = tc4.checkbox("Treat no_part as dissent", value=False, key="t_no_part",
-            help="Reclassify 'took no part' as dissent for all metrics — increases signal ~5x")
-        t_en_banc = tc5.checkbox("EN BANC only", value=True, key="t_en_banc",
-            help="Restrict to EN BANC cases where all 15 justices sit (cleanest cross-justice signal)")
-        compute_temporal = tc6.button("Compute Temporal", key="run_temporal", type="primary")
+        compute_temporal = st.button("Compute Temporal", key="run_temporal", type="primary")
 
         if compute_temporal:
             if not csv_path.exists():
                 st.error(f"CSV not found: {csv_path}")
             else:
-                with st.spinner("Computing temporal analysis..."):
+                with st.spinner("Computing temporal analysis (all metrics)..."):
                     justices_csv = repo_root / "ph_sc_justices.csv"
+                    div_filt_ta = division_filter if len(division_filter) < len(division_all) else None
                     cases = load_cases(
                         str(csv_path),
                         min_confidence=min_conf,
-                        en_banc_only=t_en_banc,
+                        division_filter=div_filt_ta,
+                        dissent_filter=dissent_filter,
+                        treat_no_part_as_dissent=treat_no_part,
                     )
                     tenures = load_tenures(str(justices_csv))
-                    analyzer = TemporalAnalyzer(cases, tenures, treat_no_part_as_dissent=t_no_part)
+                    analyzer = TemporalAnalyzer(cases, tenures)
                     st.session_state.temporal_analyzer = analyzer
                     st.session_state.temporal_summary = analyzer.summary()
+
+                    # Pre-compute all windowed DataFrames for step-based viewing
+                    windowed = {}
+                    windowed["dissent_rate"] = analyzer.dissent_rate_timeline(t_window, t_step)
+                    windowed["dissent_affinity"] = analyzer.dissent_affinity_windowed(
+                        t_window, t_step, t_min_dissents)
+                    windowed["bloc_deviation"] = analyzer.bloc_deviation(t_window, t_step)
+                    windowed["temporal_drift"] = analyzer.temporal_drift(t_window, t_step)
+                    windowed["agreement"] = analyzer.agreement_normalized_windowed(
+                        t_window, t_step, min_shared_cases=5)
+                    # Global (non-windowed) versions for timeline view
+                    windowed["dissent_affinity_global"] = analyzer.dissent_affinity(t_min_dissents)
+                    windowed["agreement_global"] = analyzer.agreement_normalized(
+                        min_shared_cases=20)
+                    # Court-wide dissent rate (all 4 combos)
+                    windowed["court_dissent_rate"] = court_dissent_rate_timeline(
+                        str(csv_path), DISSENT_RATE_COMBOS,
+                        window_years=t_window, step_months=t_step,
+                        min_confidence=min_conf,
+                    )
+                    st.session_state.ta_windowed_data = windowed
+
+                    # Extract unique window centers across all windowed metrics
+                    all_centers = set()
+                    for key in ["dissent_rate", "bloc_deviation", "temporal_drift",
+                                "dissent_affinity", "agreement"]:
+                        df_tmp = windowed[key]
+                        if not df_tmp.empty and "window_center" in df_tmp.columns:
+                            all_centers.update(df_tmp["window_center"].unique())
+                    st.session_state.ta_windows = sorted(all_centers)
+                    st.session_state.ta_step = 0
+                    st.session_state.ta_params = {
+                        "window_years": t_window,
+                        "step_months": t_step,
+                        "min_dissents": t_min_dissents,
+                        "treat_no_part_as_dissent": treat_no_part,
+                        "division_filter": division_filter,
+                        "dissent_filter": dissent_filter,
+                        "min_confidence": min_conf,
+                    }
                 st.success(f"Loaded {st.session_state.temporal_summary['total_cases']} cases, "
                            f"{st.session_state.temporal_summary['unique_justices']} justices")
 
@@ -726,27 +777,176 @@ with tab_network:
             sm3.metric("With No Part", summary["cases_with_no_part"])
             sm4.metric("Justices", summary["unique_justices"])
 
-            # Metric selector
+            # View mode + metric selector
+            vm_col, metric_col = st.columns([1, 3])
+            view_mode = vm_col.radio(
+                "View", ["Timeline", "Step View"], key="t_view_mode", horizontal=True,
+                help="Timeline shows all steps; Step View lets you scroll through individual windows",
+            )
             metric_options = [
                 "Dissent Rate Timeline",
                 "Dissent Affinity",
                 "Bloc Deviation",
                 "Temporal Drift",
                 "Agreement vs Expected",
+                "Court-wide Dissent Rate",
             ]
-            selected_metric = st.selectbox("Metric", metric_options, key="t_metric",
+            selected_metric = metric_col.selectbox("Metric", metric_options, key="t_metric",
                 help="Choose which temporal voting metric to visualize")
 
             # President color map for plotly
             _pres_color_map = {**PRESIDENT_COLORS, "Unknown": FALLBACK_COLOR}
 
+            # Windowed data (pre-computed on Compute)
+            ta_data = st.session_state.ta_windowed_data
+            ta_windows = st.session_state.ta_windows
+
+            # --- Step slider for Step View ---
+            _ta_current_center = None
+            if view_mode == "Step View":
+                if not ta_windows:
+                    st.warning("No window data — click **Compute Temporal** first.")
+                else:
+                    from datetime import timedelta as _td
+                    num_ta_steps = len(ta_windows)
+                    if st.session_state.ta_step >= num_ta_steps:
+                        st.session_state.ta_step = num_ta_steps - 1
+
+                    def _on_ta_step_change():
+                        st.session_state.ta_step = st.session_state._ta_step_slider
+
+                    st.slider(
+                        "Window Step", 0, num_ta_steps - 1,
+                        value=st.session_state.ta_step,
+                        key="_ta_step_slider",
+                        on_change=_on_ta_step_change,
+                        help="Scroll through individual time windows.",
+                    )
+                    _ta_current_center = ta_windows[st.session_state.ta_step]
+                    params = st.session_state.ta_params
+                    _half_win = int(params.get("window_years", 3) * 365.25 / 2)
+                    _w_start = _ta_current_center - _td(days=_half_win)
+                    _w_end = _ta_current_center + _td(days=_half_win)
+                    st.caption(
+                        f"**Step {st.session_state.ta_step + 1}/{num_ta_steps}** — "
+                        f"{_w_start.strftime('%b %Y')} to {_w_end.strftime('%b %Y')}"
+                    )
+
+            # =================================================================
+            # Step-view figure builders
+            # =================================================================
+
+            def _build_step_fig_dissent_rate(df_step):
+                """Bar chart of dissent rates for one window step."""
+                df_s = df_step[df_step["dissent_count"] > 0].sort_values(
+                    "dissent_rate", ascending=True)
+                if df_s.empty:
+                    return None
+                fig = px.bar(
+                    df_s, x="dissent_rate", y="justice", orientation="h",
+                    color="appointed_by", color_discrete_map=_pres_color_map,
+                    hover_data=["cases_participated", "dissent_count"],
+                    labels={"dissent_rate": "Dissent Rate", "justice": ""},
+                    title="Dissent Rate (this window)",
+                )
+                fig.update_layout(template="plotly_dark",
+                                  height=max(350, len(df_s) * 28))
+                return fig
+
+            def _build_step_fig_affinity(df_step):
+                """Heatmap of co-dissent for one window step."""
+                if df_step.empty:
+                    return None
+                justices_in = sorted(
+                    set(df_step["justice_a"]) | set(df_step["justice_b"]))
+                matrix = pd.DataFrame(0.0, index=justices_in, columns=justices_in)
+                for _, row in df_step.iterrows():
+                    matrix.loc[row["justice_a"], row["justice_b"]] = row["co_dissent_rate"]
+                    matrix.loc[row["justice_b"], row["justice_a"]] = row["co_dissent_rate"]
+                fig = px.imshow(
+                    matrix, text_auto=".2f",
+                    labels={"color": "Co-Dissent Rate"},
+                    title="Dissent Affinity (this window)",
+                    color_continuous_scale="YlOrRd",
+                )
+                fig.update_layout(template="plotly_dark",
+                                  height=max(400, len(justices_in) * 32))
+                return fig
+
+            def _build_step_fig_bloc(df_step):
+                """Bar chart of bloc deviation for one window step."""
+                df_s = df_step[df_step["against_bloc"] > 0].sort_values(
+                    "deviation_score", ascending=True)
+                if df_s.empty:
+                    return None
+                fig = px.bar(
+                    df_s, x="deviation_score", y="justice", orientation="h",
+                    color="appointed_by", color_discrete_map=_pres_color_map,
+                    hover_data=["cases_in_window", "with_bloc", "against_bloc"],
+                    labels={"deviation_score": "Bloc Deviation", "justice": ""},
+                    title="Bloc Deviation (this window)",
+                )
+                fig.update_layout(template="plotly_dark",
+                                  height=max(350, len(df_s) * 28))
+                return fig
+
+            def _build_step_fig_drift(df_step, y_col="alignment_with_court"):
+                """Bar chart of alignment metrics for one window step."""
+                if df_step.empty:
+                    return None
+                df_s = df_step.sort_values(y_col, ascending=True)
+                fig = px.bar(
+                    df_s, x=y_col, y="justice", orientation="h",
+                    color="appointed_by", color_discrete_map=_pres_color_map,
+                    hover_data=["cases_in_window", "alignment_with_court",
+                                "alignment_with_own_bloc", "dissent_rate"],
+                    labels={y_col: y_col.replace("_", " ").title(), "justice": ""},
+                    title=f"{y_col.replace('_', ' ').title()} (this window)",
+                )
+                fig.update_layout(template="plotly_dark",
+                                  height=max(350, len(df_s) * 28))
+                return fig
+
+            def _build_step_fig_agreement(df_step):
+                """Scatter plot of agreement vs expected for one window step."""
+                if df_step.empty:
+                    return None
+                fig = px.scatter(
+                    df_step, x="expected_agreement", y="observed_agreement",
+                    color="same_bloc",
+                    hover_data=["justice_a", "justice_b",
+                                "cases_both_participated", "affinity_score"],
+                    labels={
+                        "expected_agreement": "Expected Agreement",
+                        "observed_agreement": "Observed Agreement",
+                        "same_bloc": "Same Appointment Bloc",
+                    },
+                    title="Agreement vs Expected (this window)",
+                    color_discrete_map={True: "#4dff91", False: "#ff4d6a"},
+                )
+                fig.add_trace(go.Scatter(
+                    x=[0.5, 1.0], y=[0.5, 1.0],
+                    mode="lines", line=dict(dash="dash", color="gray"),
+                    showlegend=False,
+                ))
+                fig.update_layout(template="plotly_dark", height=550)
+                return fig
+
             # --- Dissent Rate Timeline ---
             if selected_metric == "Dissent Rate Timeline":
-                df = analyzer.dissent_rate_timeline(t_window, t_step)
+                df = ta_data["dissent_rate"] if ta_data else analyzer.dissent_rate_timeline(t_window, t_step)
                 if df.empty:
                     st.info("No data for the selected parameters.")
+                elif view_mode == "Step View" and _ta_current_center is not None:
+                    df_step = df[df["window_center"] == _ta_current_center]
+                    fig = _build_step_fig_dissent_rate(df_step)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No dissents in this window.")
+                    with st.expander("Raw Data (this step)", expanded=False):
+                        st.dataframe(df_step.sort_values("dissent_rate", ascending=False))
                 else:
-                    # Filter to justices who dissented at least once
                     justices_with_dissent = df[df["dissent_count"] > 0]["justice"].unique().tolist()
                     selected_justices = st.multiselect(
                         "Justices", sorted(justices_with_dissent),
@@ -772,42 +972,63 @@ with tab_network:
 
             # --- Dissent Affinity ---
             elif selected_metric == "Dissent Affinity":
-                df = analyzer.dissent_affinity(t_min_dissents)
-                if df.empty:
-                    st.info(f"No justice pairs found with >= {t_min_dissents} dissents each.")
+                if view_mode == "Step View" and _ta_current_center is not None:
+                    df_w = ta_data["dissent_affinity"] if ta_data else pd.DataFrame()
+                    df_step = df_w[df_w["window_center"] == _ta_current_center] if not df_w.empty else pd.DataFrame()
+                    fig = _build_step_fig_affinity(df_step)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No co-dissent pairs in this window (try lowering Min Dissents).")
+                    with st.expander("Raw Data (this step)", expanded=False):
+                        if not df_step.empty:
+                            st.dataframe(df_step.sort_values("co_dissent_count", ascending=False))
+                        else:
+                            st.caption("No data.")
                 else:
-                    # Build heatmap matrix
-                    justices_in_df = sorted(set(df["justice_a"]) | set(df["justice_b"]))
-                    matrix = pd.DataFrame(0.0, index=justices_in_df, columns=justices_in_df)
-                    for _, row in df.iterrows():
-                        matrix.loc[row["justice_a"], row["justice_b"]] = row["co_dissent_rate"]
-                        matrix.loc[row["justice_b"], row["justice_a"]] = row["co_dissent_rate"]
+                    df = (ta_data.get("dissent_affinity_global")
+                          if ta_data else analyzer.dissent_affinity(t_min_dissents))
+                    if df is None or df.empty:
+                        st.info(f"No justice pairs found with >= {t_min_dissents} dissents each.")
+                    else:
+                        justices_in_df = sorted(set(df["justice_a"]) | set(df["justice_b"]))
+                        matrix = pd.DataFrame(0.0, index=justices_in_df, columns=justices_in_df)
+                        for _, row in df.iterrows():
+                            matrix.loc[row["justice_a"], row["justice_b"]] = row["co_dissent_rate"]
+                            matrix.loc[row["justice_b"], row["justice_a"]] = row["co_dissent_rate"]
 
-                    fig = px.imshow(
-                        matrix, text_auto=".2f",
-                        labels={"color": "Co-Dissent Rate"},
-                        title="Dissent Affinity Heatmap (how often two dissenters dissent together)",
-                        color_continuous_scale="YlOrRd",
-                    )
-                    fig.update_layout(template="plotly_dark", height=600)
-                    st.plotly_chart(fig, use_container_width=True)
+                        fig = px.imshow(
+                            matrix, text_auto=".2f",
+                            labels={"color": "Co-Dissent Rate"},
+                            title="Dissent Affinity Heatmap (how often two dissenters dissent together)",
+                            color_continuous_scale="YlOrRd",
+                        )
+                        fig.update_layout(template="plotly_dark", height=600)
+                        st.plotly_chart(fig, use_container_width=True)
 
-                    # Dissent-against table
-                    with st.expander("Dissent Against (who dissents when whom is in majority)", expanded=False):
-                        df_against = analyzer.dissent_against(t_min_dissents)
-                        if not df_against.empty:
-                            st.dataframe(df_against.head(50))
+                        with st.expander("Dissent Against (who dissents when whom is in majority)", expanded=False):
+                            df_against = analyzer.dissent_against(t_min_dissents)
+                            if not df_against.empty:
+                                st.dataframe(df_against.head(50))
 
-                    with st.expander("Raw Affinity Data", expanded=False):
-                        st.dataframe(df.sort_values("co_dissent_count", ascending=False))
+                        with st.expander("Raw Affinity Data", expanded=False):
+                            st.dataframe(df.sort_values("co_dissent_count", ascending=False))
 
             # --- Bloc Deviation ---
             elif selected_metric == "Bloc Deviation":
-                df = analyzer.bloc_deviation(t_window, t_step)
+                df = ta_data["bloc_deviation"] if ta_data else analyzer.bloc_deviation(t_window, t_step)
                 if df.empty:
                     st.info("No data for the selected parameters.")
+                elif view_mode == "Step View" and _ta_current_center is not None:
+                    df_step = df[df["window_center"] == _ta_current_center]
+                    fig = _build_step_fig_bloc(df_step)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No bloc deviations in this window.")
+                    with st.expander("Raw Data (this step)", expanded=False):
+                        st.dataframe(df_step.sort_values("deviation_score", ascending=False))
                 else:
-                    # Show justices who deviated at least once
                     deviators = df[df["against_bloc"] > 0]["justice"].unique().tolist()
                     selected_justices = st.multiselect(
                         "Justices", sorted(deviators),
@@ -834,75 +1055,411 @@ with tab_network:
 
             # --- Temporal Drift ---
             elif selected_metric == "Temporal Drift":
-                df = analyzer.temporal_drift(t_window, t_step)
+                df = ta_data["temporal_drift"] if ta_data else analyzer.temporal_drift(t_window, t_step)
                 if df.empty:
                     st.info("No data for the selected parameters.")
                 else:
-                    drift_justices = df["justice"].unique().tolist()
-                    selected_justices = st.multiselect(
-                        "Justices", sorted(drift_justices),
-                        default=sorted(drift_justices)[:8],
-                        key="t_td_justices",
-                        help="Select justices to display",
-                    )
                     drift_y = st.selectbox("Y-axis", [
                         "alignment_with_court", "alignment_with_own_bloc", "dissent_rate",
-                    ], key="t_td_y", help="Which alignment metric to plot over time")
+                    ], key="t_td_y", help="Which alignment metric to plot")
 
-                    if selected_justices:
-                        plot_df = df[df["justice"].isin(selected_justices)]
-                        fig = px.line(
-                            plot_df, x="window_center", y=drift_y,
-                            color="justice",
-                            hover_data=["cases_in_window", "appointed_by"],
-                            labels={"window_center": "Date", drift_y: drift_y.replace("_", " ").title()},
-                            title=f"Temporal Drift: {drift_y.replace('_', ' ').title()}",
-                            color_discrete_sequence=px.colors.qualitative.Set2,
+                    if view_mode == "Step View" and _ta_current_center is not None:
+                        df_step = df[df["window_center"] == _ta_current_center]
+                        fig = _build_step_fig_drift(df_step, drift_y)
+                        if fig:
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("No data in this window.")
+                        with st.expander("Raw Data (this step)", expanded=False):
+                            st.dataframe(df_step.sort_values(drift_y, ascending=False))
+                    else:
+                        drift_justices = df["justice"].unique().tolist()
+                        selected_justices = st.multiselect(
+                            "Justices", sorted(drift_justices),
+                            default=sorted(drift_justices)[:8],
+                            key="t_td_justices",
+                            help="Select justices to display",
                         )
-                        fig.update_layout(template="plotly_dark", height=500)
-                        st.plotly_chart(fig, use_container_width=True)
+                        if selected_justices:
+                            plot_df = df[df["justice"].isin(selected_justices)]
+                            fig = px.line(
+                                plot_df, x="window_center", y=drift_y,
+                                color="justice",
+                                hover_data=["cases_in_window", "appointed_by"],
+                                labels={"window_center": "Date", drift_y: drift_y.replace("_", " ").title()},
+                                title=f"Temporal Drift: {drift_y.replace('_', ' ').title()}",
+                                color_discrete_sequence=px.colors.qualitative.Set2,
+                            )
+                            fig.update_layout(template="plotly_dark", height=500)
+                            st.plotly_chart(fig, use_container_width=True)
 
-                    with st.expander("Raw Data", expanded=False):
-                        st.dataframe(df.sort_values(["window_center", "justice"]))
+                        with st.expander("Raw Data", expanded=False):
+                            st.dataframe(df.sort_values(["window_center", "justice"]))
 
             # --- Agreement vs Expected ---
             elif selected_metric == "Agreement vs Expected":
-                min_shared = st.slider("Min Shared Cases", 5, 100, 20, 5, key="t_min_shared",
-                    help="Only show pairs that participated in at least this many shared cases")
-                df = analyzer.agreement_normalized(min_shared_cases=min_shared)
-                if df.empty:
-                    st.info(f"No pairs with >= {min_shared} shared cases.")
-                else:
-                    fig = px.scatter(
-                        df, x="expected_agreement", y="observed_agreement",
-                        color="same_bloc",
-                        hover_data=["justice_a", "justice_b", "cases_both_participated", "affinity_score"],
-                        labels={
-                            "expected_agreement": "Expected Agreement",
-                            "observed_agreement": "Observed Agreement",
-                            "same_bloc": "Same Appointment Bloc",
-                        },
-                        title="Agreement vs Expected (below diagonal = unusual friction)",
-                        color_discrete_map={True: "#4dff91", False: "#ff4d6a"},
-                    )
-                    # Add diagonal reference line
-                    fig.add_trace(go.Scatter(
-                        x=[0.9, 1.0], y=[0.9, 1.0],
-                        mode="lines", line=dict(dash="dash", color="gray"),
-                        showlegend=False,
-                    ))
-                    fig.update_layout(template="plotly_dark", height=550)
-                    st.plotly_chart(fig, use_container_width=True)
+                if view_mode == "Step View" and _ta_current_center is not None:
+                    df_w = ta_data["agreement"] if ta_data else pd.DataFrame()
+                    df_step = df_w[df_w["window_center"] == _ta_current_center] if not df_w.empty else pd.DataFrame()
+                    fig = _build_step_fig_agreement(df_step)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No pairs with enough shared cases in this window.")
 
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.markdown("**Most Unusual Friction** (lowest affinity)")
-                        st.dataframe(df.head(10)[["justice_a", "justice_b", "affinity_score",
-                                                   "observed_agreement", "expected_agreement", "cases_both_participated"]])
-                    with col_b:
-                        st.markdown("**Most Unusual Alliance** (highest affinity)")
-                        st.dataframe(df.tail(10).iloc[::-1][["justice_a", "justice_b", "affinity_score",
-                                                              "observed_agreement", "expected_agreement", "cases_both_participated"]])
+                    if not df_step.empty:
+                        df_sorted = df_step.sort_values("affinity_score")
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.markdown("**Most Unusual Friction** (this window)")
+                            st.dataframe(df_sorted.head(10)[["justice_a", "justice_b", "affinity_score",
+                                                              "observed_agreement", "expected_agreement",
+                                                              "cases_both_participated"]])
+                        with col_b:
+                            st.markdown("**Most Unusual Alliance** (this window)")
+                            st.dataframe(df_sorted.tail(10).iloc[::-1][["justice_a", "justice_b", "affinity_score",
+                                                                         "observed_agreement", "expected_agreement",
+                                                                         "cases_both_participated"]])
+                    with st.expander("Raw Data (this step)", expanded=False):
+                        if not df_step.empty:
+                            st.dataframe(df_step.sort_values("affinity_score"))
+                        else:
+                            st.caption("No data.")
+                else:
+                    min_shared = st.slider("Min Shared Cases", 5, 100, 20, 5, key="t_min_shared",
+                        help="Only show pairs that participated in at least this many shared cases")
+                    df = (ta_data.get("agreement_global")
+                          if ta_data else analyzer.agreement_normalized(min_shared_cases=min_shared))
+                    if df is None or df.empty:
+                        st.info(f"No pairs with >= {min_shared} shared cases.")
+                    else:
+                        fig = px.scatter(
+                            df, x="expected_agreement", y="observed_agreement",
+                            color="same_bloc",
+                            hover_data=["justice_a", "justice_b", "cases_both_participated", "affinity_score"],
+                            labels={
+                                "expected_agreement": "Expected Agreement",
+                                "observed_agreement": "Observed Agreement",
+                                "same_bloc": "Same Appointment Bloc",
+                            },
+                            title="Agreement vs Expected (below diagonal = unusual friction)",
+                            color_discrete_map={True: "#4dff91", False: "#ff4d6a"},
+                        )
+                        fig.add_trace(go.Scatter(
+                            x=[0.9, 1.0], y=[0.9, 1.0],
+                            mode="lines", line=dict(dash="dash", color="gray"),
+                            showlegend=False,
+                        ))
+                        fig.update_layout(template="plotly_dark", height=550)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.markdown("**Most Unusual Friction** (lowest affinity)")
+                            st.dataframe(df.head(10)[["justice_a", "justice_b", "affinity_score",
+                                                       "observed_agreement", "expected_agreement",
+                                                       "cases_both_participated"]])
+                        with col_b:
+                            st.markdown("**Most Unusual Alliance** (highest affinity)")
+                            st.dataframe(df.tail(10).iloc[::-1][["justice_a", "justice_b", "affinity_score",
+                                                                  "observed_agreement", "expected_agreement",
+                                                                  "cases_both_participated"]])
+
+            elif selected_metric == "Court-wide Dissent Rate":
+                cdr_df = ta_data.get("court_dissent_rate", pd.DataFrame()) if ta_data else pd.DataFrame()
+                if cdr_df.empty:
+                    st.info("Click **Compute Temporal** to generate court-wide dissent rates.")
+                else:
+                    all_combos = sorted(cdr_df["combo"].unique())
+                    selected_combos = st.multiselect(
+                        "Filter combinations to display",
+                        all_combos, default=all_combos,
+                        key="cdr_combos",
+                    )
+                    cdr_filtered = cdr_df[cdr_df["combo"].isin(selected_combos)]
+
+                    if view_mode == "Step View" and _ta_current_center is not None:
+                        # For each combo, find the row with the closest window_center
+                        step_rows_list = []
+                        params = st.session_state.ta_params
+                        step_days = int(params.get("step_months", 6) * 30.44)
+                        for combo_lbl in selected_combos:
+                            combo_df = cdr_filtered[cdr_filtered["combo"] == combo_lbl]
+                            if combo_df.empty:
+                                continue
+                            diffs = (combo_df["window_center"] - _ta_current_center).abs()
+                            closest_idx = diffs.idxmin()
+                            if diffs.loc[closest_idx].days <= step_days:
+                                step_rows_list.append(combo_df.loc[closest_idx])
+                        df_step = pd.DataFrame(step_rows_list) if step_rows_list else pd.DataFrame()
+
+                        if not df_step.empty:
+                            step_rows = []
+                            for _, r in df_step.iterrows():
+                                step_rows.append({
+                                    "Combination": r["combo"],
+                                    "Total Cases": r["total_cases"],
+                                    "Dissent Cases": r["dissent_cases"],
+                                    "Dissent Rate": f"{r['dissent_rate']:.1%}",
+                                })
+                            st.dataframe(pd.DataFrame(step_rows), use_container_width=True, hide_index=True)
+                        else:
+                            st.caption("No data for this window step.")
+                    else:
+                        # Timeline view: line chart with justice composition overlay
+                        if not cdr_filtered.empty:
+                            import plotly.graph_objects as go
+                            fig = go.Figure()
+
+                            # --- Background: stacked bars of justice count by president ---
+                            _PRES_ORDER_CDR = [
+                                "Ferdinand Marcos", "Corazon Aquino", "Fidel V. Ramos",
+                                "Joseph Estrada", "Gloria Macapagal Arroyo",
+                                "Benigno Aquino III", "Rodrigo Duterte", "Bongbong Marcos",
+                            ]
+                            from datetime import date as _date
+                            justices_csv_cdr = str(Path(__file__).parent / "ph_sc_justices.csv")
+                            tenures_cdr = load_tenures(justices_csv_cdr)
+                            window_centers = sorted(cdr_filtered["window_center"].unique())
+                            # Get window start/end from the data
+                            wc_to_range = {}
+                            for _, r in cdr_filtered.drop_duplicates("window_center").iterrows():
+                                wc_to_range[r["window_center"]] = (r["window_start"], r["window_end"])
+
+                            # Count active justices per president per window
+                            pres_counts: dict[str, list[int]] = {p: [] for p in _PRES_ORDER_CDR}
+                            for wc in window_centers:
+                                ws, we = wc_to_range[wc]
+                                by_pres: dict[str, int] = {}
+                                for name, t in tenures_cdr.items():
+                                    t_start = t.tenure_start or _date.min
+                                    t_end = t.tenure_end or _date.max
+                                    if t_start < we and t_end > ws:
+                                        by_pres[t.appointed_by] = by_pres.get(t.appointed_by, 0) + 1
+                                for p in _PRES_ORDER_CDR:
+                                    pres_counts[p].append(by_pres.get(p, 0))
+
+                            # Add stacked bars (oldest president at bottom)
+                            for p in _PRES_ORDER_CDR:
+                                counts = pres_counts[p]
+                                if any(c > 0 for c in counts):
+                                    fig.add_trace(go.Bar(
+                                        x=window_centers, y=counts,
+                                        name=p,
+                                        marker_color=PRESIDENT_COLORS.get(p, FALLBACK_COLOR),
+                                        opacity=0.25,
+                                        yaxis="y2",
+                                        hovertemplate=f"{p}: %{{y}} justices<extra></extra>",
+                                    ))
+
+                            # --- Foreground: dissent rate lines ---
+                            _line_colors = ["#ff1744", "#00e5ff", "#ffd600", "#76ff03"]
+                            for i, combo_lbl in enumerate(selected_combos):
+                                combo_df = cdr_filtered[cdr_filtered["combo"] == combo_lbl].sort_values("window_center")
+                                fig.add_trace(go.Scatter(
+                                    x=combo_df["window_center"], y=combo_df["dissent_rate"],
+                                    mode="lines+markers",
+                                    name=combo_lbl,
+                                    line=dict(color=_line_colors[i % len(_line_colors)], width=3),
+                                    marker=dict(size=5),
+                                    yaxis="y",
+                                    customdata=list(zip(combo_df["total_cases"], combo_df["dissent_cases"])),
+                                    hovertemplate=(
+                                        f"<b>{combo_lbl}</b><br>"
+                                        "Rate: %{y:.1%}<br>"
+                                        "Dissent: %{customdata[1]} / %{customdata[0]} cases"
+                                        "<extra></extra>"
+                                    ),
+                                ))
+
+                            fig.update_layout(
+                                template="plotly_dark", height=550,
+                                title="Court-wide Dissent Rate Over Time",
+                                barmode="stack",
+                                yaxis=dict(
+                                    title="Dissent Rate",
+                                    tickformat=".0%",
+                                    side="left",
+                                    overlaying="y2",
+                                    range=[0, None],
+                                ),
+                                yaxis2=dict(
+                                    title="Active Justices",
+                                    side="right",
+                                    range=[0, None],
+                                ),
+                                xaxis=dict(title=""),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                    # Full table (always shown below chart/step view)
+                    if not cdr_filtered.empty:
+                        st.markdown("**Dissent Rate Table**")
+                        # Pivot: rows=windows, columns=combos
+                        pivot_data = []
+                        for wc in sorted(cdr_filtered["window_center"].unique()):
+                            wdf = cdr_filtered[cdr_filtered["window_center"] == wc]
+                            first_row = wdf.iloc[0]
+                            row_dict = {
+                                "window_start": first_row["window_start"],
+                                "window_end": first_row["window_end"],
+                            }
+                            for _, r in wdf.iterrows():
+                                lbl = r["combo"]
+                                row_dict[f"{lbl} (cases)"] = f"{r['dissent_cases']}/{r['total_cases']}"
+                                row_dict[f"{lbl} (rate)"] = f"{r['dissent_rate']:.1%}"
+                            pivot_data.append(row_dict)
+                        pivot_df = pd.DataFrame(pivot_data)
+                        st.dataframe(pivot_df, use_container_width=True, hide_index=True)
+
+                        # Download CSV (raw, not formatted)
+                        csv_buf = cdr_filtered.to_csv(index=False)
+                        st.download_button(
+                            "Download Court-wide Dissent Rate (CSV)",
+                            csv_buf, "court_dissent_rate.csv", "text/csv",
+                            key="cdr_dl_csv",
+                        )
+
+            # =================================================================
+            # Export All Steps
+            # =================================================================
+            if ta_data and ta_windows:
+                st.divider()
+                with st.expander("Export All Steps", expanded=False):
+                    st.markdown(
+                        "Export **per-step graphs** (PNG or HTML) and **raw data** (CSV) "
+                        "for every window step across all 5 metrics, plus a `run_variables.json`."
+                    )
+
+                    if st.button("Save All Step Exports", key="ta_export_all", type="secondary"):
+                        import os
+                        from datetime import datetime as _dt, timedelta as _tdelta
+
+                        timestamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+                        save_dir = Path(__file__).parent / "exports" / f"temporal_analysis_{timestamp}"
+                        save_dir.mkdir(parents=True, exist_ok=True)
+
+                        _can_img = True
+                        try:
+                            import kaleido  # noqa: F401
+                        except ImportError:
+                            _can_img = False
+
+                        params = st.session_state.ta_params
+                        _half_win = int(params.get("window_years", 3) * 365.25 / 2)
+
+                        num_windows = len(ta_windows)
+                        # 5 metrics × num_windows graphs + 5 consolidated CSVs + 1 run_vars
+                        total_items = 5 * num_windows + 6
+                        progress = st.progress(0, text="Exporting...")
+                        done = 0
+
+                        _metric_keys = [
+                            ("dissent_rate", "dissent_rate"),
+                            ("dissent_affinity", "dissent_affinity"),
+                            ("bloc_deviation", "bloc_deviation"),
+                            ("temporal_drift", "temporal_drift"),
+                            ("agreement", "agreement"),
+                        ]
+
+                        for mk, dk in _metric_keys:
+                            df_full = ta_data.get(dk, pd.DataFrame())
+                            metric_dir = save_dir / mk
+                            metric_dir.mkdir(exist_ok=True)
+
+                            step_rows = []
+
+                            for si, wc in enumerate(ta_windows):
+                                wlabel = f"step{si:03d}_{wc.strftime('%Y%m%d')}"
+
+                                if not df_full.empty and "window_center" in df_full.columns:
+                                    df_step = df_full[df_full["window_center"] == wc]
+                                else:
+                                    df_step = pd.DataFrame()
+
+                                # Build per-step figure
+                                fig = None
+                                if mk == "dissent_rate":
+                                    fig = _build_step_fig_dissent_rate(df_step)
+                                elif mk == "dissent_affinity":
+                                    fig = _build_step_fig_affinity(df_step)
+                                elif mk == "bloc_deviation":
+                                    fig = _build_step_fig_bloc(df_step)
+                                elif mk == "temporal_drift":
+                                    fig = _build_step_fig_drift(df_step, "alignment_with_court")
+                                elif mk == "agreement":
+                                    fig = _build_step_fig_agreement(df_step)
+
+                                if fig is not None:
+                                    if _can_img:
+                                        fig.write_image(str(metric_dir / f"{mk}_{wlabel}.png"), scale=2)
+                                    else:
+                                        fig.write_html(str(metric_dir / f"{mk}_{wlabel}.html"))
+
+                                # Save per-step CSV
+                                if not df_step.empty:
+                                    df_step.to_csv(metric_dir / f"{mk}_{wlabel}.csv", index=False)
+
+                                # Collect for consolidated CSV
+                                if not df_step.empty:
+                                    step_copy = df_step.copy()
+                                    step_copy.insert(0, "step", si)
+                                    step_rows.append(step_copy)
+
+                                done += 1
+                                progress.progress(
+                                    done / total_items,
+                                    text=f"{mk} step {si+1}/{num_windows}",
+                                )
+
+                            # Consolidated CSV per metric (all steps)
+                            if step_rows:
+                                pd.concat(step_rows, ignore_index=True).to_csv(
+                                    save_dir / f"{mk}_all_steps.csv", index=False,
+                                )
+                            done += 1
+                            progress.progress(done / total_items, text=f"{mk} — consolidated CSV")
+
+                        # Run variables JSON
+                        window_summaries = []
+                        for si, wc in enumerate(ta_windows):
+                            _ws = wc - _tdelta(days=_half_win)
+                            _we = wc + _tdelta(days=_half_win)
+                            step_info = {
+                                "step": si,
+                                "window_center": str(wc),
+                                "window_start": str(_ws),
+                                "window_end": str(_we),
+                            }
+                            for mk, dk in _metric_keys:
+                                df_full = ta_data.get(dk, pd.DataFrame())
+                                if not df_full.empty and "window_center" in df_full.columns:
+                                    df_s = df_full[df_full["window_center"] == wc]
+                                    step_info[f"{mk}_rows"] = len(df_s)
+                                else:
+                                    step_info[f"{mk}_rows"] = 0
+                            window_summaries.append(step_info)
+
+                        run_vars = {
+                            "timestamp": timestamp,
+                            "total_windows": num_windows,
+                            "image_format": "png" if _can_img else "html",
+                            "summary": st.session_state.temporal_summary,
+                            "parameters": params,
+                            "windows": window_summaries,
+                        }
+                        with open(save_dir / "run_variables.json", "w", encoding="utf-8") as f:
+                            json.dump(run_vars, f, indent=2, default=str)
+
+                        progress.progress(1.0, text="Done!")
+                        img_fmt = "PNG" if _can_img else "HTML (install kaleido for PNG)"
+                        st.success(
+                            f"Saved to `{save_dir.relative_to(Path(__file__).parent)}/`\n\n"
+                            f"- 5 metric folders x {num_windows} steps ({img_fmt} + CSV each)\n"
+                            f"- 5 consolidated CSVs (all steps per metric)\n"
+                            f"- 1 `run_variables.json`"
+                        )
         else:
             st.info("Click **Compute Temporal** to load and analyze voting patterns.")
 
@@ -915,8 +1472,8 @@ with tab_network:
 
         st.markdown("Animated community detection over sliding time windows.")
 
-        # --- Controls Row 1 ---
-        tn_c1, tn_c2 = st.columns(2)
+        # --- Controls ---
+        tn_c1, tn_c2, tn_c3 = st.columns(3)
         tn_window = tn_c1.slider(
             "Window Size (years)", 1, 10, 3, 1, key="tn_window",
             help="Width of each sliding window in years.",
@@ -925,22 +1482,7 @@ with tab_network:
             "Step Size (months)", 3, 24, 6, 3, key="tn_step_size",
             help="How far the window advances between steps.",
         )
-
-        # --- Controls Row 2 ---
-        tn_c3, tn_c4, tn_c5, tn_c6 = st.columns(4)
-        tn_no_part = tn_c3.checkbox(
-            "Treat no_part as dissent", value=False, key="tn_no_part",
-            help="Reclassify 'no part' justices as dissenters (~5× more signal).",
-        )
-        tn_en_banc = tn_c4.checkbox(
-            "EN BANC only", value=True, key="tn_en_banc",
-            help="Restrict to EN BANC cases for richer cross-justice signal.",
-        )
-        tn_dissent_only = tn_c5.checkbox(
-            "Dissent edges only", value=False, key="tn_dissent_only",
-            help="Build network from dissenter co-voting only (skip majority edges). Shows who dissents together.",
-        )
-        tn_edge_thresh = tn_c6.slider(
+        tn_edge_thresh = tn_c3.slider(
             "Edge Threshold", 0, 50, 0, 1, key="tn_edge_thresh",
             help="Hide edges with co-voting weight below this value.",
         )
@@ -950,14 +1492,20 @@ with tab_network:
             with st.spinner("Building temporal network snapshots..."):
                 tn_csv_path = str(csv_path)
                 justices_csv = str(Path(__file__).parent / "ph_sc_justices.csv")
-                cases = load_cases(tn_csv_path, min_confidence=min_conf, en_banc_only=tn_en_banc)
+                div_filt_tn = division_filter if len(division_filter) < len(division_all) else None
+                cases = load_cases(
+                    tn_csv_path,
+                    min_confidence=min_conf,
+                    division_filter=div_filt_tn,
+                    dissent_filter=dissent_filter,
+                    treat_no_part_as_dissent=treat_no_part,
+                )
                 tenures = load_tenures(justices_csv)
                 tn_builder = TemporalNetwork(
                     cases, tenures,
                     justices_csv_path=justices_csv,
-                    treat_no_part_as_dissent=tn_no_part,
                 )
-                snapshots = tn_builder.compute_snapshots(tn_window, tn_step_size, dissent_only=tn_dissent_only)
+                snapshots = tn_builder.compute_snapshots(tn_window, tn_step_size)
                 st.session_state.temporal_snapshots = snapshots
                 st.session_state.tn_axis_range = compute_global_bounds(snapshots)
                 st.session_state.tn_tenures = tenures
@@ -1087,6 +1635,66 @@ with tab_network:
                         if not entered and not exited:
                             st.caption("No changes from previous step.")
 
+                    # Cross-Community Cases
+                    with st.expander("Cross-Community Cases", expanded=False):
+                        cc_cases = extract_cross_community_cases(snap)
+                        if cc_cases:
+                            cc_pct = len(cc_cases) / snap.cases_in_window * 100 if snap.cases_in_window else 0
+                            st.caption(
+                                f"{len(cc_cases)} / {snap.cases_in_window} cases "
+                                f"({cc_pct:.1f}%) span community boundaries"
+                            )
+
+                            def _cc_badge(name, comm_id):
+                                """Render a justice name as a colored badge by community."""
+                                color = COMMUNITY_COLORS[comm_id % len(COMMUNITY_COLORS)]
+                                return (
+                                    f'<span style="background:{color}22;color:{color};'
+                                    f'border:1px solid {color};border-radius:3px;'
+                                    f'padding:1px 5px;margin:1px;display:inline-block;'
+                                    f'font-size:0.85em;">'
+                                    f'{extract_display_name(name)}'
+                                    f'<sub style="opacity:0.7;font-size:0.75em;"> C{comm_id}</sub>'
+                                    f'</span>'
+                                )
+
+                            html_parts = ['<table style="width:100%;border-collapse:collapse;font-size:0.9em;">']
+                            html_parts.append(
+                                '<tr style="border-bottom:2px solid #444;">'
+                                '<th style="text-align:left;padding:4px;">Case</th>'
+                                '<th style="text-align:left;padding:4px;">Majority</th>'
+                                '<th style="text-align:left;padding:4px;">Dissent</th>'
+                                '</tr>'
+                            )
+                            for cc in cc_cases:
+                                # Majority column — badges per community
+                                maj_html = " ".join(
+                                    _cc_badge(n, cid)
+                                    for cid, names in sorted(cc.majority_by_community.items())
+                                    for n in names
+                                )
+                                # Dissent column
+                                dis_html = " ".join(
+                                    _cc_badge(n, cid)
+                                    for cid, names in sorted(cc.dissent_by_community.items())
+                                    for n in names
+                                ) if cc.dissent_by_community else '<span style="opacity:0.4;">—</span>'
+
+                                html_parts.append(
+                                    f'<tr style="border-bottom:1px solid #333;">'
+                                    f'<td style="padding:4px;vertical-align:top;">'
+                                    f'<strong>{cc.case_number}</strong><br>'
+                                    f'<span style="opacity:0.6;font-size:0.85em;">'
+                                    f'Vol. {cc.volume} · {cc.date} · {cc.ponente}</span></td>'
+                                    f'<td style="padding:4px;vertical-align:top;">{maj_html}</td>'
+                                    f'<td style="padding:4px;vertical-align:top;">{dis_html}</td>'
+                                    f'</tr>'
+                                )
+                            html_parts.append('</table>')
+                            st.markdown("".join(html_parts), unsafe_allow_html=True)
+                        else:
+                            st.caption("No cross-community cases in this window.")
+
                 # --- Exports for current window ---
                 with st.expander("Export Current Window"):
                     G = snap.graph
@@ -1137,6 +1745,38 @@ with tab_network:
                         key=f"tn_dl_comm_{step}",
                     )
 
+                    # Cross-community cases CSV
+                    cc_export = extract_cross_community_cases(snap)
+                    if cc_export:
+                        cc_buf = io.StringIO()
+                        wr = csv.writer(cc_buf)
+                        wr.writerow([
+                            "case_number", "volume", "date", "division", "ponente",
+                            "cross_in_majority", "cross_in_dissent",
+                            "communities_involved", "majority_votes", "dissent_votes",
+                        ])
+                        for cc in cc_export:
+                            maj_parts = []
+                            for cid, names in sorted(cc.majority_by_community.items()):
+                                short = [extract_display_name(n) for n in names]
+                                maj_parts.append(f"[C{cid}] {', '.join(short)}")
+                            dis_parts = []
+                            for cid, names in sorted(cc.dissent_by_community.items()):
+                                short = [extract_display_name(n) for n in names]
+                                dis_parts.append(f"[C{cid}] {', '.join(short)}")
+                            wr.writerow([
+                                cc.case_number, cc.volume, str(cc.date), cc.division, cc.ponente,
+                                cc.cross_in_majority, cc.cross_in_dissent,
+                                "|".join(str(c) for c in cc.communities_involved),
+                                " | ".join(maj_parts),
+                                " | ".join(dis_parts),
+                            ])
+                        st.download_button(
+                            f"Cross-Community Cases ({len(cc_export)})", cc_buf.getvalue(),
+                            f"cross_community_{window_label}.csv", "text/csv",
+                            key=f"tn_dl_cross_{step}",
+                        )
+
                     # Network stats JSON (includes community membership by president)
                     comm_json = []
                     for cid, members in zip(snap.community_ids, snap.communities):
@@ -1184,6 +1824,36 @@ with tab_network:
                         key=f"tn_dl_graphml_{step}",
                     )
 
+                # --- Cross-Community Summary (All Windows) ---
+                with st.expander("Cross-Community Summary (All Windows)", expanded=False):
+                    summary_df = compile_cross_community_summary(snapshots)
+                    if not summary_df.empty:
+                        total_cases_all = sum(s.cases_in_window for s in snapshots)
+                        total_cc_all = sum(
+                            len(extract_cross_community_cases(s)) for s in snapshots
+                        )
+                        cc_pct_all = total_cc_all / total_cases_all * 100 if total_cases_all else 0
+                        st.caption(
+                            f"{total_cc_all} / {total_cases_all} case-window instances "
+                            f"({cc_pct_all:.1f}%) are cross-community across {num_steps} windows "
+                            f"— {len(summary_df)} unique cases"
+                        )
+                        st.dataframe(
+                            summary_df.drop(columns=["windows"]),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        summary_csv = summary_df.to_csv(index=False)
+                        st.download_button(
+                            "Download Full Summary (CSV)",
+                            summary_csv,
+                            "cross_community_summary.csv",
+                            "text/csv",
+                            key="tn_dl_cross_summary",
+                        )
+                    else:
+                        st.caption("No cross-community cases found in any window.")
+
                 # --- Save All Outputs ---
                 st.divider()
                 if st.button("Save All Outputs", key="tn_save_all", type="secondary"):
@@ -1202,7 +1872,7 @@ with tab_network:
                         _can_svg = False
 
                     progress = st.progress(0, text="Saving outputs...")
-                    total_items = num_steps * 3 + 1  # graphs + timelines + communities + variables
+                    total_items = num_steps * 4 + 2  # graphs + timelines + communities + cross-comm CSVs + vars + summary
                     done = 0
 
                     for si, s in enumerate(snapshots):
@@ -1255,17 +1925,50 @@ with tab_network:
                         pd.DataFrame(comm_rows).to_csv(
                             save_dir / f"communities_{wlabel}.csv", index=False,
                         )
+
+                        # 3b) Cross-community cases CSV
+                        cc_save = extract_cross_community_cases(s)
+                        if cc_save:
+                            cc_rows = []
+                            for cc in cc_save:
+                                maj_parts = []
+                                for cid, names in sorted(cc.majority_by_community.items()):
+                                    short = [extract_display_name(n) for n in names]
+                                    maj_parts.append(f"[C{cid}] {', '.join(short)}")
+                                dis_parts = []
+                                for cid, names in sorted(cc.dissent_by_community.items()):
+                                    short = [extract_display_name(n) for n in names]
+                                    dis_parts.append(f"[C{cid}] {', '.join(short)}")
+                                cc_rows.append({
+                                    "case_number": cc.case_number,
+                                    "volume": cc.volume,
+                                    "date": str(cc.date),
+                                    "division": cc.division,
+                                    "ponente": cc.ponente,
+                                    "cross_in_majority": cc.cross_in_majority,
+                                    "cross_in_dissent": cc.cross_in_dissent,
+                                    "communities_involved": "|".join(str(c) for c in cc.communities_involved),
+                                    "majority_votes": " | ".join(maj_parts),
+                                    "dissent_votes": " | ".join(dis_parts) if dis_parts else "",
+                                })
+                            pd.DataFrame(cc_rows).to_csv(
+                                save_dir / f"cross_community_{wlabel}.csv", index=False,
+                            )
+
                         done += 1
                         progress.progress(done / total_items, text=f"Communities {si+1}/{num_steps}")
+
+                        done += 1
+                        progress.progress(done / total_items, text=f"Cross-community {si+1}/{num_steps}")
 
                     # 4) Run variables JSON
                     run_vars = {
                         "timestamp": timestamp,
                         "window_years": tn_window,
                         "step_months": tn_step_size,
-                        "treat_no_part_as_dissent": tn_no_part,
-                        "en_banc_only": tn_en_banc,
-                        "dissent_edges_only": tn_dissent_only,
+                        "treat_no_part_as_dissent": treat_no_part,
+                        "division_filter": division_filter,
+                        "dissent_filter": dissent_filter,
                         "edge_threshold": tn_edge_thresh,
                         "min_confidence": min_conf,
                         "total_snapshots": num_steps,
@@ -1310,13 +2013,26 @@ with tab_network:
                         save_dir / "all_communities.csv", index=False,
                     )
 
+                    # 6) Cross-community summary CSV (all windows)
+                    cc_summary_df = compile_cross_community_summary(snapshots)
+                    if not cc_summary_df.empty:
+                        cc_summary_df.to_csv(
+                            save_dir / "cross_community_summary.csv", index=False,
+                        )
+
+                    done += 1
+                    progress.progress(done / total_items, text="Summary...")
+                    done += 1
                     progress.progress(1.0, text="Done!")
                     img_fmt = "PNG" if _can_svg else "HTML (install kaleido for PNG)"
+                    cc_count = len(cc_summary_df) if not cc_summary_df.empty else 0
                     st.success(
                         f"Saved {num_steps} snapshots to `{save_dir.relative_to(Path(__file__).parent)}/`\n\n"
                         f"- {num_steps} network graphs ({img_fmt})\n"
                         f"- {num_steps} tenure timelines ({img_fmt})\n"
                         f"- {num_steps} + 1 community CSVs\n"
+                        f"- {num_steps} cross-community CSVs\n"
+                        f"- 1 cross-community summary CSV ({cc_count} cases)\n"
                         f"- 1 run_variables.json"
                     )
 

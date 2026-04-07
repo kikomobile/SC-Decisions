@@ -168,13 +168,21 @@ def load_cases(
     csv_path: str | Path,
     min_confidence: float = 0.0,
     en_banc_only: bool = False,
+    division_filter: list[str] | None = None,
+    dissent_filter: str = "all",
+    treat_no_part_as_dissent: bool = False,
 ) -> list[CaseRecord]:
     """Load and parse cases from predictions_extract.csv.
 
     Args:
         csv_path: Path to predictions_extract.csv.
         min_confidence: Skip cases below this confidence.
-        en_banc_only: If True, only include EN BANC cases.
+        en_banc_only: Deprecated — use division_filter instead.
+        division_filter: List of allowed divisions (e.g. ["EN BANC"]).
+            None means no filter. Takes precedence over en_banc_only.
+        dissent_filter: "all", "unanimous", or "with_dissent".
+        treat_no_part_as_dissent: Reclassify no_part as dissenters
+            before applying dissent_filter.
 
     Returns:
         List of CaseRecord sorted by date.
@@ -193,19 +201,28 @@ def load_cases(
         if conf < min_confidence:
             continue
 
-        # Division
+        # Division filter
         division = _normalize_division(row.get("division") or "")
-        if en_banc_only and division != "EN BANC":
+        if division_filter is not None:
+            if division not in division_filter:
+                continue
+        elif en_banc_only and division != "EN BANC":
             continue
 
-        # Date
+        # Date — parse then validate against volume-estimated year
         case_date = _parse_date(row.get("date") or "")
+        try:
+            vol_for_date = int(row.get("volume") or 0)
+        except ValueError:
+            vol_for_date = 0
         if case_date is None:
-            try:
-                vol = int(row.get("volume") or 0)
-            except ValueError:
+            if vol_for_date == 0:
                 continue
-            case_date = _estimate_date_from_volume(vol)
+            case_date = _estimate_date_from_volume(vol_for_date)
+        elif vol_for_date > 0:
+            est = _estimate_date_from_volume(vol_for_date)
+            if abs(case_date.year - est.year) > 5:
+                case_date = est
 
         # Volume
         try:
@@ -219,6 +236,17 @@ def load_cases(
         dissenters = _split_names(row.get("dissenting") or "")
         no_part = _split_names(row.get("no_part") or "")
         on_leave = _split_names(row.get("on_leave") or "")
+
+        # Reclassify no_part as dissent (before dissent filtering)
+        if treat_no_part_as_dissent:
+            dissenters = dissenters + no_part
+            no_part = []
+
+        # Dissent filter (applied after no_part reclassification)
+        if dissent_filter == "unanimous" and dissenters:
+            continue
+        elif dissent_filter == "with_dissent" and not dissenters:
+            continue
 
         # Build majority list
         majority = list(concurring)
@@ -715,6 +743,132 @@ class TemporalAnalyzer:
             df = df.sort_values("affinity_score")
         return df
 
+    # --- Metric 2b: Windowed Dissent Affinity ---
+
+    def dissent_affinity_windowed(
+        self, window_years: int = 3, step_months: int = 6,
+        min_dissents: int = 2,
+    ) -> pd.DataFrame:
+        """Per-window co-dissent affinity between justice pairs.
+
+        Like dissent_affinity() but computed separately for each sliding window,
+        returning a DataFrame with a window_center column for step-based filtering.
+        """
+        windows = self._generate_windows(window_years, step_months)
+        rows = []
+
+        for w_start, w_end, w_center in windows:
+            case_idxs = self._cases_in_window(w_start, w_end)
+            if not case_idxs:
+                continue
+
+            dissent_counts: Counter = Counter()
+            dissent_cases: dict[str, set[int]] = defaultdict(set)
+
+            for idx in case_idxs:
+                c = self.cases[idx]
+                for name in c.dissenters:
+                    dissent_counts[name] += 1
+                    dissent_cases[name].add(idx)
+
+            eligible = sorted(j for j, cnt in dissent_counts.items() if cnt >= min_dissents)
+
+            for a, b in combinations(eligible, 2):
+                co = len(dissent_cases[a] & dissent_cases[b])
+                denom = min(dissent_counts[a], dissent_counts[b])
+                rate = co / denom if denom > 0 else 0
+                rows.append({
+                    "window_center": w_center,
+                    "justice_a": a,
+                    "justice_b": b,
+                    "co_dissent_count": co,
+                    "co_dissent_rate": round(rate, 4),
+                    "dissents_a": dissent_counts[a],
+                    "dissents_b": dissent_counts[b],
+                    "appointed_by_a": self._appointed_by.get(a, "Unknown"),
+                    "appointed_by_b": self._appointed_by.get(b, "Unknown"),
+                })
+
+        return pd.DataFrame(rows)
+
+    # --- Metric 5b: Windowed Agreement vs Expected ---
+
+    def agreement_normalized_windowed(
+        self, window_years: int = 3, step_months: int = 6,
+        min_shared_cases: int = 5,
+    ) -> pd.DataFrame:
+        """Per-window observed vs expected agreement for justice pairs.
+
+        Like agreement_normalized() but computed within each sliding window.
+        Uses a lower default min_shared_cases since per-window sample sizes are smaller.
+        """
+        windows = self._generate_windows(window_years, step_months)
+        rows = []
+
+        for w_start, w_end, w_center in windows:
+            case_idxs = self._cases_in_window(w_start, w_end)
+            if not case_idxs:
+                continue
+
+            justice_majority_cases: dict[str, set[int]] = defaultdict(set)
+            justice_dissent_cases: dict[str, set[int]] = defaultdict(set)
+            justice_all_cases: dict[str, set[int]] = defaultdict(set)
+
+            for idx in case_idxs:
+                c = self.cases[idx]
+                for name in c.majority:
+                    justice_majority_cases[name].add(idx)
+                    justice_all_cases[name].add(idx)
+                for name in c.dissenters:
+                    justice_dissent_cases[name].add(idx)
+                    justice_all_cases[name].add(idx)
+
+            # Per-window dissent rates
+            dissent_rate = {}
+            for j in justice_all_cases:
+                total = len(justice_all_cases[j])
+                dissent_rate[j] = len(justice_dissent_cases[j]) / total if total > 0 else 0
+
+            justices = sorted(justice_all_cases.keys())
+            for a, b in combinations(justices, 2):
+                shared = justice_all_cases[a] & justice_all_cases[b]
+                if len(shared) < min_shared_cases:
+                    continue
+
+                agreements = 0
+                for idx in shared:
+                    a_majority = idx in justice_majority_cases[a]
+                    b_majority = idx in justice_majority_cases[b]
+                    if a_majority == b_majority:
+                        agreements += 1
+
+                observed = agreements / len(shared)
+                d_a, d_b = dissent_rate[a], dissent_rate[b]
+                expected = 1 - (d_a + d_b - d_a * d_b)
+                affinity = observed - expected
+
+                same_bloc = (self._appointed_by.get(a, "") == self._appointed_by.get(b, "")
+                             and self._appointed_by.get(a, "") != "Unknown")
+
+                rows.append({
+                    "window_center": w_center,
+                    "justice_a": a,
+                    "justice_b": b,
+                    "cases_both_participated": len(shared),
+                    "agreements": agreements,
+                    "observed_agreement": round(observed, 4),
+                    "expected_agreement": round(expected, 4),
+                    "affinity_score": round(affinity, 4),
+                    "same_bloc": same_bloc,
+                    "appointed_by_a": self._appointed_by.get(a, "Unknown"),
+                    "appointed_by_b": self._appointed_by.get(b, "Unknown"),
+                })
+
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df = df.sort_values(["window_center", "affinity_score"])
+        return df
+
     # --- Summary stats ---
 
     def summary(self) -> dict:
@@ -756,6 +910,23 @@ class WindowSnapshot:
     active_justices: int
     transitions: dict  # {"entered": list[str], "exited": list[str]}
     stability: float | None  # mean Jaccard vs previous step, None for step 0
+    window_cases: list[CaseRecord] = field(default_factory=list)
+
+
+@dataclass
+class CrossCommunityCase:
+    """A case where co-voting occurs across community boundaries."""
+
+    volume: int
+    case_number: str
+    division: str
+    date: date
+    ponente: str
+    cross_in_majority: bool
+    cross_in_dissent: bool
+    majority_by_community: dict[int, list[str]]
+    dissent_by_community: dict[int, list[str]]
+    communities_involved: list[int]
 
 
 class TemporalNetwork:
@@ -885,26 +1056,24 @@ class TemporalNetwork:
     def _build_window_graph(
         self, window_cases: list[CaseRecord],
         w_start: date, w_end: date,
-        dissent_only: bool = False,
     ) -> nx.Graph:
         G = nx.Graph()
         case_counts: Counter = Counter()
 
         for c in window_cases:
-            if not dissent_only:
-                # Rule 1: Majority co-voting
-                majority = [
-                    n for n in c.majority
-                    if n and n not in EXCLUDE_NAMES
-                    and self._is_valid_in_window(n, w_start, w_end)
-                ]
-                for name in majority:
-                    case_counts[name] += 1
-                for a, b in combinations(majority, 2):
-                    if G.has_edge(a, b):
-                        G[a][b]["weight"] += 1
-                    else:
-                        G.add_edge(a, b, weight=1)
+            # Rule 1: Majority co-voting
+            majority = [
+                n for n in c.majority
+                if n and n not in EXCLUDE_NAMES
+                and self._is_valid_in_window(n, w_start, w_end)
+            ]
+            for name in majority:
+                case_counts[name] += 1
+            for a, b in combinations(majority, 2):
+                if G.has_edge(a, b):
+                    G[a][b]["weight"] += 1
+                else:
+                    G.add_edge(a, b, weight=1)
 
             # Rule 2: Dissenter co-voting
             dissenters = [
@@ -1068,7 +1237,6 @@ class TemporalNetwork:
 
     def compute_snapshots(
         self, window_years: int, step_months: int,
-        dissent_only: bool = False,
     ) -> list[WindowSnapshot]:
         windows = self._generate_windows(window_years, step_months)
         snapshots: list[WindowSnapshot] = []
@@ -1088,7 +1256,7 @@ class TemporalNetwork:
             if not window_cases:
                 continue
 
-            G = self._build_window_graph(window_cases, w_start, w_end, dissent_only)
+            G = self._build_window_graph(window_cases, w_start, w_end)
             if G.number_of_nodes() == 0:
                 continue
 
@@ -1135,6 +1303,7 @@ class TemporalNetwork:
                 node_community=node_community,
                 cases_in_window=len(window_cases),
                 dissent_count=dissent_count,
+                window_cases=window_cases,
                 active_justices=G.number_of_nodes(),
                 transitions={"entered": entered, "exited": exited},
                 stability=stability,
@@ -1149,6 +1318,191 @@ class TemporalNetwork:
             step_idx += 1
 
         return snapshots
+
+
+# ---------------------------------------------------------------------------
+# Cross-community case extraction
+# ---------------------------------------------------------------------------
+
+def extract_cross_community_cases(
+    snapshot: WindowSnapshot,
+) -> list[CrossCommunityCase]:
+    """Find cases in a window where majority or dissent spans multiple communities."""
+    node_community = snapshot.node_community
+    results: list[CrossCommunityCase] = []
+
+    for c in snapshot.window_cases:
+        # Group majority members by community (only those in the graph)
+        maj_by_comm: dict[int, list[str]] = defaultdict(list)
+        for n in c.majority:
+            if n in node_community:
+                maj_by_comm[node_community[n]].append(n)
+
+        dis_by_comm: dict[int, list[str]] = defaultdict(list)
+        for n in c.dissenters:
+            if n in node_community:
+                dis_by_comm[node_community[n]].append(n)
+
+        cross_maj = len(maj_by_comm) >= 2
+        cross_dis = len(dis_by_comm) >= 2
+
+        if not cross_maj and not cross_dis:
+            continue
+
+        all_comms = sorted(set(maj_by_comm.keys()) | set(dis_by_comm.keys()))
+
+        results.append(CrossCommunityCase(
+            volume=c.volume,
+            case_number=c.case_number,
+            division=c.division,
+            date=c.date,
+            ponente=c.ponente,
+            cross_in_majority=cross_maj,
+            cross_in_dissent=cross_dis,
+            majority_by_community=dict(maj_by_comm),
+            dissent_by_community=dict(dis_by_comm),
+            communities_involved=all_comms,
+        ))
+
+    return results
+
+
+def compile_cross_community_summary(
+    snapshots: list[WindowSnapshot],
+) -> pd.DataFrame:
+    """Aggregate cross-community cases across all windows with frequency counts."""
+    case_info: dict[tuple[int, str], dict] = {}
+    case_freq: Counter = Counter()
+    case_windows: dict[tuple[int, str], list[str]] = defaultdict(list)
+    case_cross_types: dict[tuple[int, str], set[str]] = defaultdict(set)
+
+    for snap in snapshots:
+        cc_cases = extract_cross_community_cases(snap)
+        window_label = (
+            f"{snap.window_start.strftime('%Y-%m')} to "
+            f"{snap.window_end.strftime('%Y-%m')}"
+        )
+        for cc in cc_cases:
+            key = (cc.volume, cc.case_number)
+            case_freq[key] += 1
+            case_windows[key].append(window_label)
+
+            if cc.cross_in_majority and cc.cross_in_dissent:
+                case_cross_types[key].add("both")
+            elif cc.cross_in_majority:
+                case_cross_types[key].add("majority")
+            else:
+                case_cross_types[key].add("dissent")
+
+            if key not in case_info:
+                case_info[key] = {
+                    "volume": cc.volume,
+                    "case_number": cc.case_number,
+                    "date": cc.date,
+                    "division": cc.division,
+                    "ponente": cc.ponente,
+                }
+
+    rows = []
+    for key, freq in case_freq.most_common():
+        info = case_info[key]
+        rows.append({
+            "case_number": info["case_number"],
+            "volume": info["volume"],
+            "date": info["date"],
+            "division": info["division"],
+            "ponente": info["ponente"],
+            "frequency": freq,
+            "cross_in": ", ".join(sorted(case_cross_types[key])),
+            "windows": "; ".join(case_windows[key]),
+        })
+
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Court-wide dissent rate across filter combinations
+# ---------------------------------------------------------------------------
+
+# Predefined filter combos for the court-wide dissent rate metric
+DISSENT_RATE_COMBOS = [
+    {"label": "EN BANC", "division_filter": ["EN BANC"], "treat_no_part_as_dissent": False},
+    {"label": "EN BANC (no-part=dissent)", "division_filter": ["EN BANC"], "treat_no_part_as_dissent": True},
+    {"label": "All Divisions", "division_filter": None, "treat_no_part_as_dissent": False},
+    {"label": "All Divisions (no-part=dissent)", "division_filter": None, "treat_no_part_as_dissent": True},
+]
+
+
+def court_dissent_rate_timeline(
+    csv_path: str | Path,
+    combos: list[dict],
+    window_years: int = 3,
+    step_months: int = 6,
+    min_confidence: float = 0.0,
+) -> pd.DataFrame:
+    """Compute court-wide dissent rate per sliding window for multiple filter combos.
+
+    Each combo dict must have: label, division_filter, treat_no_part_as_dissent.
+    For each combo, loads ALL cases (dissent_filter="all") for that division/no-part
+    config, then counts how many have dissenters in each window.
+
+    Returns DataFrame: window_center, window_start, window_end, combo_label,
+                       total_cases, dissent_cases, dissent_rate
+    """
+    # Load cases for each combo first, then determine shared window range
+    combo_cases: list[tuple[dict, list[CaseRecord]]] = []
+    global_min = date.max
+    global_max = date.min
+
+    for combo in combos:
+        cases = load_cases(
+            str(csv_path),
+            min_confidence=min_confidence,
+            division_filter=combo["division_filter"],
+            dissent_filter="all",
+            treat_no_part_as_dissent=combo["treat_no_part_as_dissent"],
+        )
+        if not cases:
+            continue
+        combo_cases.append((combo, cases))
+        if cases[0].date < global_min:
+            global_min = cases[0].date
+        if cases[-1].date > global_max:
+            global_max = cases[-1].date
+
+    if not combo_cases:
+        return pd.DataFrame()
+
+    # Generate shared windows from the global date range
+    window_days = int(window_years * 365.25)
+    step_days = int(step_months * 30.44)
+    windows: list[tuple[date, date, date]] = []
+    start = global_min
+    while start + timedelta(days=window_days) <= global_max + timedelta(days=step_days):
+        end = start + timedelta(days=window_days)
+        center = start + timedelta(days=window_days // 2)
+        windows.append((start, end, center))
+        start += timedelta(days=step_days)
+
+    rows: list[dict] = []
+    for combo, cases in combo_cases:
+        for w_start, w_end, w_center in windows:
+            window_cases = [c for c in cases if w_start <= c.date < w_end]
+            total = len(window_cases)
+            with_dissent = sum(1 for c in window_cases if c.dissenters)
+            rate = with_dissent / total if total else 0
+
+            rows.append({
+                "window_center": w_center,
+                "window_start": w_start,
+                "window_end": w_end,
+                "combo": combo["label"],
+                "total_cases": total,
+                "dissent_cases": with_dissent,
+                "dissent_rate": round(rate, 4),
+            })
+
+    return pd.DataFrame(rows)
 
 
 def compute_global_bounds(
