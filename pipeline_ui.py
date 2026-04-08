@@ -1400,12 +1400,23 @@ with tab_network:
                                 ), row=1, col=1)
 
                             # --- Panel 2: Stacked bars (justice composition) ---
+                            # Convert dates to ms timestamps for uniform bar width
+                            from datetime import datetime as _dt_cls
+                            _wc_ms = [int(_dt_cls.combine(wc, _dt_cls.min.time()).timestamp() * 1000)
+                                      if hasattr(wc, 'isoformat') else wc
+                                      for wc in window_centers]
+                            # Bar width in ms: 80% of the step interval
+                            if len(_wc_ms) >= 2:
+                                _bar_width_ms = int((_wc_ms[1] - _wc_ms[0]) * 0.8)
+                            else:
+                                _bar_width_ms = int(180 * 24 * 3600 * 1000 * 0.8)
                             for p in _PRES_ORDER_CDR:
                                 counts = pres_counts[p]
                                 if any(c > 0 for c in counts):
                                     short = _PRES_SHORT_NAMES.get(p, p)
                                     fig.add_trace(go.Bar(
                                         x=window_centers, y=counts,
+                                        width=_bar_width_ms,
                                         name=short,
                                         marker_color=_APPOINTEE_BAR_COLORS.get(p, FALLBACK_COLOR),
                                         opacity=0.8,
@@ -1709,11 +1720,11 @@ with tab_network:
         # --- Controls ---
         tn_c1, tn_c2, tn_c3 = st.columns(3)
         tn_window = tn_c1.slider(
-            "Window Size (years)", 1, 10, 3, 1, key="tn_window",
+            "Window Size (years)", 1, 10, 1, 1, key="tn_window",
             help="Width of each sliding window in years.",
         )
         tn_step_size = tn_c2.slider(
-            "Step Size (months)", 3, 24, 6, 3, key="tn_step_size",
+            "Step Size (months)", 3, 24, 12, 3, key="tn_step_size",
             help="How far the window advances between steps.",
         )
         tn_edge_thresh = tn_c3.slider(
