@@ -103,6 +103,12 @@
 - [x] **UI-2**: Created `pipeline_ui.py` — Streamlit app with sidebar settings, 3 tabs (Single Volume, Batch Processing, CSV Extraction), live log streaming via `st.status`, summary metrics cards, validation check expanders.
 - [x] **UI-3**: Added `streamlit>=1.29.0` to `requirements.txt`, added `.pipeline_ui_settings.json` to `.gitignore`.
 
+### Unhandled Vote Pattern Fix (VOTE-1 thru VOTE-4)
+- [x] **VOTE-1**: Extended `_VOTE_VERB_RE` in `csv_extractor.py` with 6 new verb patterns (separate opinion, joins opinion, on official business, inhibit). Expanded classification logic and added after-verb name extraction for "joins...of" pattern.
+- [x] **VOTE-2**: Added `other_votes` field to `CaseRecord` in `temporal.py`, wired through `load_cases()` and `TemporalNetwork` with `treat_other_as_dissent=True` reclassification.
+- [x] **VOTE-3**: Added `treat_other_as_dissent` to `build_network.py` `build()` and `_process_case()`, reading `other_votes` from CSV and merging into dissenters.
+- [x] **VOTE-4**: Wired `treat_other_as_dissent` checkbox into `pipeline_ui.py` (default ON) and passed to all call sites (build_network, load_cases, TemporalNetwork).
+
 ### Vote Classification Fix (CSV-4, CSV-4b)
 - [x] **CSV-4**: Replaced sentence-based clause splitting with action-verb-based splitting in `csv_extractor.py` `parse_votes()`. Added `_VOTE_VERB_RE` regex + OCR variants (concut/conrur/concui). Fixed 10 misclassified cases.
 - [x] **CSV-4b**: Added OCR normalization step in `parse_votes()` — canonicalizes 10 OCR variants of "concur" (coneur/concue/concuf/soncur/concor/coricur/conour/concut/conrur/concui), handles hyphenated `con- cur`/`con cur`, underscore-prefixed `_concur`. Simplified `_VOTE_VERB_RE` and step 3 regex. Fixed 20 additional cases.
@@ -980,6 +986,13 @@ and edge styling as the PyVis version. Matplotlib natively exports PNG and SVG.
 
 ---
 
+### Date Correction (DATE-1, DATE-2, DATE-3)
+- [x] **DATE-1**: Date prefix stripping — `_strip_date_prefix()` in `csv_extractor.py` strips G.R. number fragments from date text (e.g., "73978-80. April 26, 1939" → "April 26, 1939"). JSON predictions untouched.
+- [x] **DATE-2**: Volume-contextual OCR date correction — `_sanitize_dates()` computes per-volume median date, detects outliers >730 days from median, applies single-digit `_OCR_DIGIT_SWAPS` to auto-correct. Adds `date_original` + `date_warning` CSV columns. 12 corrections, 2 unfixed outliers, 0 false positives across 36,993 cases.
+- [x] **DATE-3**: Verified all 5 original targets corrected + 7 bonus OCR catches (4987→1987, March 36→30, 1994→1991, 1993→1995 x3, 2063→2003). 2 unfixed outliers flagged (Vol 833 genuine mismatch, Vol 898 unparseable).
+
+---
+
 ## NOTE: Future — Batch scoring support
 
 > **Do not implement yet.** Placeholder for the iteration loop.
@@ -997,3 +1010,6 @@ python -m detection ../downloads --range 226-960 --score ground_truth.json
 - `__main__.py`: remove batch-mode scoring warning (line 171), wire up batch scoring.
 - `format_results_table()`: add era-grouped summary view (per-era F1, per-label × per-era breakdown).
 - Compare regex-only vs regex+LLM side by side in the same report.
+
+---
+

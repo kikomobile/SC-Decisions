@@ -53,6 +53,7 @@ class CaseRecord:
     dissenters: list[str]
     no_part: list[str]
     on_leave: list[str]
+    other_votes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -171,6 +172,7 @@ def load_cases(
     division_filter: list[str] | None = None,
     dissent_filter: str = "all",
     treat_no_part_as_dissent: bool = False,
+    treat_other_as_dissent: bool = True,
 ) -> list[CaseRecord]:
     """Load and parse cases from predictions_extract.csv.
 
@@ -182,6 +184,8 @@ def load_cases(
             None means no filter. Takes precedence over en_banc_only.
         dissent_filter: "all", "unanimous", or "with_dissent".
         treat_no_part_as_dissent: Reclassify no_part as dissenters
+            before applying dissent_filter.
+        treat_other_as_dissent: Reclassify other_votes as dissenters
             before applying dissent_filter.
 
     Returns:
@@ -236,13 +240,19 @@ def load_cases(
         dissenters = _split_names(row.get("dissenting") or "")
         no_part = _split_names(row.get("no_part") or "")
         on_leave = _split_names(row.get("on_leave") or "")
+        other_votes = _split_names(row.get("other_votes") or "")
 
         # Reclassify no_part as dissent (before dissent filtering)
         if treat_no_part_as_dissent:
             dissenters = dissenters + no_part
             no_part = []
 
-        # Dissent filter (applied after no_part reclassification)
+        # Reclassify other_votes as dissent (before dissent filtering)
+        if treat_other_as_dissent:
+            dissenters = dissenters + other_votes
+            other_votes = []
+
+        # Dissent filter (applied after reclassification)
         if dissent_filter == "unanimous" and dissenters:
             continue
         elif dissent_filter == "with_dissent" and not dissenters:
@@ -267,6 +277,7 @@ def load_cases(
             dissenters=dissenters,
             no_part=no_part,
             on_leave=on_leave,
+            other_votes=other_votes,
         ))
 
     cases.sort(key=lambda c: c.date)
@@ -333,6 +344,7 @@ class TemporalAnalyzer:
         cases: list[CaseRecord],
         tenures: dict[str, JusticeTenure],
         treat_no_part_as_dissent: bool = False,
+        treat_other_as_dissent: bool = True,
     ):
         self.tenures = tenures
 
@@ -350,9 +362,28 @@ class TemporalAnalyzer:
                     dissenters=c.dissenters + c.no_part,
                     no_part=[],
                     on_leave=c.on_leave,
+                    other_votes=c.other_votes,
                 ))
         else:
             self.cases = cases
+
+        # Optionally reclassify other_votes as dissent
+        if treat_other_as_dissent:
+            updated_cases = []
+            for c in self.cases:
+                updated_cases.append(CaseRecord(
+                    volume=c.volume,
+                    case_number=c.case_number,
+                    division=c.division,
+                    date=c.date,
+                    ponente=c.ponente,
+                    majority=c.majority,
+                    dissenters=c.dissenters + c.other_votes,
+                    no_part=c.no_part,
+                    on_leave=c.on_leave,
+                    other_votes=[],
+                ))
+            self.cases = updated_cases
 
         # Build appointed_by lookup
         self._appointed_by: dict[str, str] = {}
@@ -938,6 +969,7 @@ class TemporalNetwork:
         tenures: dict[str, JusticeTenure],
         justices_csv_path: str | Path | None = None,
         treat_no_part_as_dissent: bool = False,
+        treat_other_as_dissent: bool = True,
     ):
         self.tenures = tenures
 
@@ -955,9 +987,28 @@ class TemporalNetwork:
                     dissenters=c.dissenters + c.no_part,
                     no_part=[],
                     on_leave=c.on_leave,
+                    other_votes=c.other_votes,
                 ))
         else:
             self.cases = cases
+
+        # Optionally reclassify other_votes as dissent
+        if treat_other_as_dissent:
+            updated_cases = []
+            for c in self.cases:
+                updated_cases.append(CaseRecord(
+                    volume=c.volume,
+                    case_number=c.case_number,
+                    division=c.division,
+                    date=c.date,
+                    ponente=c.ponente,
+                    majority=c.majority,
+                    dissenters=c.dissenters + c.other_votes,
+                    no_part=c.no_part,
+                    on_leave=c.on_leave,
+                    other_votes=[],
+                ))
+            self.cases = updated_cases
 
         # Build appointed_by using the same multi-strategy name matcher
         # that the Graph View uses (exact → alias → token → surname).

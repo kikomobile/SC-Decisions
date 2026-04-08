@@ -215,6 +215,7 @@ class NetworkBuilder:
         division_filter: list[str] | None = None,
         dissent_filter: str = "all",
         treat_no_part_as_dissent: bool = False,
+        treat_other_as_dissent: bool = True,
     ) -> nx.Graph:
         """Build the network from a predictions CSV file.
 
@@ -227,8 +228,10 @@ class NetworkBuilder:
             dissent_filter: "all" (default), "unanimous" (no dissenters),
                 or "with_dissent" (at least one dissenter).
             treat_no_part_as_dissent: Reclassify 'no part' as dissent.
+            treat_other_as_dissent: Reclassify 'other_votes' as dissent.
         """
         self._treat_no_part_as_dissent = treat_no_part_as_dissent
+        self._treat_other_as_dissent = treat_other_as_dissent
 
         with open(csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
@@ -260,10 +263,12 @@ class NetworkBuilder:
                     self.stats["skipped_division_filter"] += 1
                     continue
 
-            # Dissent filtering (account for no_part reclassification)
+            # Dissent filtering (account for no_part and other_votes reclassification)
             has_dissent = bool((row.get("dissenting") or "").strip())
             if treat_no_part_as_dissent and not has_dissent:
                 has_dissent = bool((row.get("no_part") or "").strip())
+            if treat_other_as_dissent and not has_dissent:
+                has_dissent = bool((row.get("other_votes") or "").strip())
             if dissent_filter == "unanimous":
                 if has_dissent:
                     self.stats["skipped_dissent_filter"] += 1
@@ -325,6 +330,9 @@ class NetworkBuilder:
         if self._treat_no_part_as_dissent:
             no_part_raw = (row.get("no_part") or "").strip()
             dissenters = dissenters + self._parse_names(no_part_raw)
+        if self._treat_other_as_dissent:
+            other_raw = (row.get("other_votes") or "").strip()
+            dissenters = dissenters + self._parse_names(other_raw)
         for name in dissenters:
             self._case_counts[name] += 1
 

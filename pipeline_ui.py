@@ -91,6 +91,44 @@ if "ta_params" not in st.session_state:
     st.session_state.ta_params = {}  # stored compute params for export
 
 # ---------------------------------------------------------------------------
+# Presidential terms — for chart background bands (matching index.html style)
+# ---------------------------------------------------------------------------
+from datetime import date as _date_type
+
+_PRESIDENTIAL_TERMS = [
+    {"name": "C. Aquino",      "start": _date_type(1986, 2, 25), "end": _date_type(1992, 6, 30), "band": "#facc15"},
+    {"name": "F.V. Ramos",     "start": _date_type(1992, 6, 30), "end": _date_type(1998, 6, 30), "band": "#34d399"},
+    {"name": "J. Estrada",     "start": _date_type(1998, 6, 30), "end": _date_type(2001, 1, 20), "band": "#67e8f9"},
+    {"name": "G.M. Arroyo",    "start": _date_type(2001, 1, 20), "end": _date_type(2010, 6, 30), "band": "#c4b5fd"},
+    {"name": "B. Aquino III",  "start": _date_type(2010, 6, 30), "end": _date_type(2016, 6, 30), "band": "#93c5fd"},
+    {"name": "R. Duterte",     "start": _date_type(2016, 6, 30), "end": _date_type(2022, 6, 30), "band": "#f9a8d4"},
+    {"name": "B. Marcos Jr.",  "start": _date_type(2022, 6, 30), "end": _date_type(2028, 6, 30), "band": "#fde68a"},
+]
+
+# Map full president names (from PRESIDENT_COLORS) to short names + vivid bar colors
+_PRES_SHORT_NAMES = {
+    "Ferdinand Marcos": "F. Marcos",
+    "Corazon Aquino": "C. Aquino",
+    "Fidel V. Ramos": "F.V. Ramos",
+    "Joseph Estrada": "J. Estrada",
+    "Gloria Macapagal Arroyo": "G.M. Arroyo",
+    "Benigno Aquino III": "B. Aquino III",
+    "Rodrigo Duterte": "R. Duterte",
+    "Bongbong Marcos": "B. Marcos Jr.",
+}
+
+_APPOINTEE_BAR_COLORS = {
+    "Ferdinand Marcos":        "#e879a0",
+    "Corazon Aquino":          "#eab308",
+    "Fidel V. Ramos":          "#10b981",
+    "Joseph Estrada":          "#22b8cf",
+    "Gloria Macapagal Arroyo": "#8b5cf6",
+    "Benigno Aquino III":      "#3b82f6",
+    "Rodrigo Duterte":         "#ec4899",
+    "Bongbong Marcos":         "#f59e0b",
+}
+
+# ---------------------------------------------------------------------------
 # Sidebar — Global Settings
 # ---------------------------------------------------------------------------
 st.sidebar.header("Settings")
@@ -450,17 +488,19 @@ with tab_network:
     build_net = bc4.button("Build Network", key="run_network", type="primary")
 
     # --- Case filters (shared across all sub-tabs) ---
-    fc1, fc2, fc3 = st.columns([2, 2, 1])
+    fc1, fc2, fc3, fc4 = st.columns([2, 2, 1, 1])
     division_all = ["EN BANC", "FIRST DIVISION", "SECOND DIVISION", "THIRD DIVISION"]
     division_filter = fc1.multiselect("Division Filter", division_all, default=division_all,
         key="net_division_filter",
         help="Only include cases from these divisions (all selected = no filter)")
-    dissent_options = {"All Cases": "all", "Unanimous Only": "unanimous", "With Dissent Only": "with_dissent"}
+    dissent_options = {"With Dissent Only": "with_dissent", "All Cases": "all", "Unanimous Only": "unanimous"}
     dissent_label = fc2.selectbox("Dissent Filter", list(dissent_options.keys()), key="net_dissent_filter",
         help="All: no filter. Unanimous: only cases with no dissenters. With Dissent: only cases where at least one justice dissented")
     dissent_filter = dissent_options[dissent_label]
     treat_no_part = fc3.checkbox("Treat no_part as dissent", value=False, key="net_no_part",
         help="Reclassify 'took no part' justices as dissenters (~5× more signal). Applies to all sub-tabs.")
+    treat_other = fc4.checkbox("Treat other as dissent", value=True, key="net_other_votes",
+        help="Reclassify separate opinions and 'joins' as dissenters. Default ON.")
 
     # --- Build logic ---
     if build_net:
@@ -482,6 +522,7 @@ with tab_network:
                     str(csv_path), vol_min=vol_start, vol_max=vol_end,
                     division_filter=div_filt, dissent_filter=dissent_filter,
                     treat_no_part_as_dissent=treat_no_part,
+                    treat_other_as_dissent=treat_other,
                 )
                 st.session_state.network_graph = G
                 st.session_state.network_stats = builder.stats
@@ -698,11 +739,11 @@ with tab_network:
 
         # Temporal-specific controls
         tc1, tc2, tc3 = st.columns(3)
-        t_window = tc1.slider("Window Size (years)", 1, 10, 3, 1, key="t_window",
+        t_window = tc1.slider("Window Size (years)", 1, 10, 1, 1, key="t_window",
             help="Width of each sliding time window in years")
-        t_step = tc2.slider("Step (months)", 3, 24, 6, 3, key="t_step",
+        t_step = tc2.slider("Step (months)", 3, 24, 12, 3, key="t_step",
             help="How far the window slides between calculations")
-        t_min_dissents = tc3.slider("Min Dissents", 1, 20, 5, 1, key="t_min_dissents",
+        t_min_dissents = tc3.slider("Min Dissents", 1, 20, 1, 1, key="t_min_dissents",
             help="Only include justices with at least this many dissents in affinity metrics")
 
         compute_temporal = st.button("Compute Temporal", key="run_temporal", type="primary")
@@ -720,6 +761,7 @@ with tab_network:
                         division_filter=div_filt_ta,
                         dissent_filter=dissent_filter,
                         treat_no_part_as_dissent=treat_no_part,
+                        treat_other_as_dissent=treat_other,
                     )
                     tenures = load_tenures(str(justices_csv))
                     analyzer = TemporalAnalyzer(cases, tenures)
@@ -761,6 +803,7 @@ with tab_network:
                         "step_months": t_step,
                         "min_dissents": t_min_dissents,
                         "treat_no_part_as_dissent": treat_no_part,
+                        "treat_other_as_dissent": treat_other,
                         "division_filter": division_filter,
                         "dissent_filter": dissent_filter,
                         "min_confidence": min_conf,
@@ -1206,22 +1249,40 @@ with tab_network:
                         else:
                             st.caption("No data for this window step.")
                     else:
-                        # Timeline view: line chart with justice composition overlay
+                        # Timeline view: two-panel chart (index.html style)
                         if not cdr_filtered.empty:
                             import plotly.graph_objects as go
-                            fig = go.Figure()
+                            from plotly.subplots import make_subplots
 
-                            # --- Background: stacked bars of justice count by president ---
+                            # --- Title + subtitle (outside chart, matching index.html) ---
+                            _cdr_params = st.session_state.ta_params
+                            _cdr_win = int(_cdr_params.get("window_years", 3))
+                            _cdr_step = int(_cdr_params.get("step_months", 6))
+                            _cdr_combos_str = ", ".join(selected_combos)
+                            _cdr_years = sorted(set(
+                                wc.year if hasattr(wc, 'year') else int(str(wc)[:4])
+                                for wc in cdr_filtered["window_center"]
+                            ))
+                            _cdr_year_range = f"{min(_cdr_years)}–{max(_cdr_years)}" if _cdr_years else ""
+                            st.markdown(
+                                f'<h3 style="font-family:DM Serif Display,Georgia,serif;'
+                                f'font-size:28px;color:#111;margin-bottom:2px">'
+                                f'Court-wide Dissent Rate Over Time</h3>'
+                                f'<p style="font-size:13px;color:#777;margin-bottom:16px">'
+                                f'Philippine Supreme Court · Rolling {_cdr_win}-year windows '
+                                f'· {_cdr_step}-month steps · {_cdr_combos_str} · {_cdr_year_range}</p>',
+                                unsafe_allow_html=True,
+                            )
+
+                            # --- Data prep ---
                             _PRES_ORDER_CDR = [
                                 "Ferdinand Marcos", "Corazon Aquino", "Fidel V. Ramos",
                                 "Joseph Estrada", "Gloria Macapagal Arroyo",
                                 "Benigno Aquino III", "Rodrigo Duterte", "Bongbong Marcos",
                             ]
-                            from datetime import date as _date
                             justices_csv_cdr = str(Path(__file__).parent / "ph_sc_justices.csv")
                             tenures_cdr = load_tenures(justices_csv_cdr)
                             window_centers = sorted(cdr_filtered["window_center"].unique())
-                            # Get window start/end from the data
                             wc_to_range = {}
                             for _, r in cdr_filtered.drop_duplicates("window_center").iterrows():
                                 wc_to_range[r["window_center"]] = (r["window_start"], r["window_end"])
@@ -1232,66 +1293,208 @@ with tab_network:
                                 ws, we = wc_to_range[wc]
                                 by_pres: dict[str, int] = {}
                                 for name, t in tenures_cdr.items():
-                                    t_start = t.tenure_start or _date.min
-                                    t_end = t.tenure_end or _date.max
+                                    t_start = t.tenure_start or _date_type.min
+                                    t_end = t.tenure_end or _date_type.max
                                     if t_start < we and t_end > ws:
                                         by_pres[t.appointed_by] = by_pres.get(t.appointed_by, 0) + 1
                                 for p in _PRES_ORDER_CDR:
                                     pres_counts[p].append(by_pres.get(p, 0))
 
-                            # Add stacked bars (oldest president at bottom)
-                            for p in _PRES_ORDER_CDR:
-                                counts = pres_counts[p]
-                                if any(c > 0 for c in counts):
-                                    fig.add_trace(go.Bar(
-                                        x=window_centers, y=counts,
-                                        name=p,
-                                        marker_color=PRESIDENT_COLORS.get(p, FALLBACK_COLOR),
-                                        opacity=0.25,
-                                        yaxis="y2",
-                                        hovertemplate=f"{p}: %{{y}} justices<extra></extra>",
-                                    ))
+                            # --- X-axis range: pad by half a step so bars aren't clipped ---
+                            from datetime import timedelta as _tdelta_cdr
+                            _half_step_days = int(_cdr_step * 30.44 / 2)
+                            _x_start_dt = min(window_centers)
+                            _x_end_dt = max(window_centers)
+                            if hasattr(_x_start_dt, 'isoformat'):
+                                _x_range_start = (_x_start_dt - _tdelta_cdr(days=_half_step_days)).isoformat()
+                            else:
+                                _x_range_start = "1985-06-01"
+                            if hasattr(_x_end_dt, 'isoformat'):
+                                _x_range_end = (_x_end_dt + _tdelta_cdr(days=_half_step_days)).isoformat()
+                            else:
+                                _x_range_end = str(_x_end_dt)
 
-                            # --- Foreground: dissent rate lines ---
-                            _line_colors = ["#ff1744", "#00e5ff", "#ffd600", "#76ff03"]
+                            # --- Two-panel figure (no subplot_titles — we use annotations) ---
+                            fig = make_subplots(
+                                rows=2, cols=1, shared_xaxes=True,
+                                row_heights=[0.65, 0.35], vertical_spacing=0.06,
+                            )
+
+                            # Section labels as left-aligned annotations
+                            fig.add_annotation(
+                                text="EN BANC DISSENT RATE",
+                                xref="paper", yref="paper", x=0.0, y=1.0,
+                                showarrow=False, xanchor="left", yanchor="bottom",
+                                font=dict(size=10, color="#999999", family="DM Sans, sans-serif"),
+                            )
+                            fig.add_annotation(
+                                text="COURT COMPOSITION BY APPOINTING PRESIDENT",
+                                xref="paper", yref="paper", x=0.0, y=0.33,
+                                showarrow=False, xanchor="left", yanchor="bottom",
+                                font=dict(size=10, color="#999999", family="DM Sans, sans-serif"),
+                            )
+
+                            # --- Presidential term bands (both panels) ---
+                            for pt in _PRESIDENTIAL_TERMS:
+                                _pt_x0 = pt["start"].isoformat()
+                                _pt_x1 = pt["end"].isoformat()
+                                for row_idx in [1, 2]:
+                                    fig.add_shape(
+                                        type="rect",
+                                        x0=_pt_x0, x1=_pt_x1, y0=0, y1=1,
+                                        xref=f"x{row_idx}" if row_idx > 1 else "x",
+                                        yref=f"y{row_idx} domain" if row_idx > 1 else "y domain",
+                                        fillcolor=pt["band"], opacity=0.18,
+                                        layer="below", line_width=0,
+                                    )
+                                # President name label in top panel
+                                # Clamp midpoint to visible x-axis so labels
+                                # for partially-visible terms still appear
+                                _vis_start = _x_start_dt if hasattr(_x_start_dt, 'year') else pt["start"]
+                                _vis_end = _x_end_dt if hasattr(_x_end_dt, 'year') else pt["end"]
+                                _band_start = max(pt["start"], _vis_start)
+                                _band_end = min(pt["end"], _vis_end)
+                                mid_date = _band_start + (_band_end - _band_start) / 2 if _band_end > _band_start else pt["start"]
+                                fig.add_annotation(
+                                    x=mid_date.isoformat(), y=0.97,
+                                    xref="x", yref="y domain",
+                                    text=f"<b>{pt['name']}</b>",
+                                    showarrow=False,
+                                    font=dict(size=9, color="#999999", family="DM Sans, sans-serif"),
+                                    xanchor="center", yanchor="top",
+                                )
+
+                            # --- Panel 1: Dissent rate lines ---
+                            _line_colors_clean = ["#1a1a1a", "#d94040", "#2b7a78", "#c97b1a"]
                             for i, combo_lbl in enumerate(selected_combos):
                                 combo_df = cdr_filtered[cdr_filtered["combo"] == combo_lbl].sort_values("window_center")
+                                color = _line_colors_clean[i % len(_line_colors_clean)]
+
+                                # Area fill (subtle, only for first combo)
+                                if i == 0:
+                                    fig.add_trace(go.Scatter(
+                                        x=combo_df["window_center"], y=combo_df["dissent_rate"],
+                                        fill="tozeroy", fillcolor="rgba(26,26,26,0.06)",
+                                        line=dict(width=0), mode="lines",
+                                        showlegend=False, hoverinfo="skip",
+                                    ), row=1, col=1)
+
+                                # Line
                                 fig.add_trace(go.Scatter(
                                     x=combo_df["window_center"], y=combo_df["dissent_rate"],
-                                    mode="lines+markers",
-                                    name=combo_lbl,
-                                    line=dict(color=_line_colors[i % len(_line_colors)], width=3),
-                                    marker=dict(size=5),
-                                    yaxis="y",
-                                    customdata=list(zip(combo_df["total_cases"], combo_df["dissent_cases"])),
+                                    mode="lines", name=combo_lbl,
+                                    line=dict(color=color, width=2.5, shape="spline", smoothing=1.0),
+                                    legendgroup="rates",
+                                    customdata=list(zip(
+                                        combo_df["total_cases"], combo_df["dissent_cases"],
+                                        combo_df["window_start"].astype(str),
+                                        combo_df["window_end"].astype(str),
+                                    )),
                                     hovertemplate=(
                                         f"<b>{combo_lbl}</b><br>"
+                                        "Window: %{customdata[2]} to %{customdata[3]}<br>"
                                         "Rate: %{y:.1%}<br>"
                                         "Dissent: %{customdata[1]} / %{customdata[0]} cases"
                                         "<extra></extra>"
                                     ),
-                                ))
+                                ), row=1, col=1)
 
+                            # --- Panel 2: Stacked bars (justice composition) ---
+                            for p in _PRES_ORDER_CDR:
+                                counts = pres_counts[p]
+                                if any(c > 0 for c in counts):
+                                    short = _PRES_SHORT_NAMES.get(p, p)
+                                    fig.add_trace(go.Bar(
+                                        x=window_centers, y=counts,
+                                        name=short,
+                                        marker_color=_APPOINTEE_BAR_COLORS.get(p, FALLBACK_COLOR),
+                                        opacity=0.8,
+                                        hovertemplate=f"{short}: %{{y}} justices<extra></extra>",
+                                    ), row=2, col=1)
+
+                            # Hide Plotly legend — we build a custom HTML legend below
+                            for _tr in fig.data:
+                                _tr.showlegend = False
+
+                            # --- Layout: index.html clean white style ---
                             fig.update_layout(
-                                template="plotly_dark", height=550,
-                                title="Court-wide Dissent Rate Over Time",
+                                template="plotly_white",
+                                height=680,
                                 barmode="stack",
-                                yaxis=dict(
-                                    title="Dissent Rate",
-                                    tickformat=".0%",
-                                    side="left",
-                                    overlaying="y2",
-                                    range=[0, None],
-                                ),
-                                yaxis2=dict(
-                                    title="Active Justices",
-                                    side="right",
-                                    range=[0, None],
-                                ),
-                                xaxis=dict(title=""),
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                                font=dict(family="DM Sans, sans-serif", color="#1a1a1a"),
+                                plot_bgcolor="#ffffff",
+                                paper_bgcolor="#ffffff",
+                                margin=dict(l=60, r=20, t=24, b=20),
+                                showlegend=False,
                             )
+
+                            # Top panel: dissent rate y-axis
+                            fig.update_yaxes(
+                                title_text="Dissent Rate", tickformat=".0%",
+                                gridcolor="#eeeeee", griddash="dot",
+                                zeroline=False, showline=False,
+                                title_font=dict(size=10, color="#999999"),
+                                tickfont=dict(size=11, color="#888888"),
+                                row=1, col=1,
+                            )
+                            # Bottom panel: justice count y-axis (fixed to 15)
+                            fig.update_yaxes(
+                                title_text="Justices",
+                                range=[0, 15],
+                                gridcolor="#eeeeee", griddash="dot",
+                                zeroline=False, showline=False,
+                                showticklabels=False,
+                                title_font=dict(size=10, color="#999999"),
+                                tickfont=dict(size=11, color="#888888"),
+                                row=2, col=1,
+                            )
+                            # Top x-axis: hidden labels, clamped range
+                            fig.update_xaxes(
+                                showticklabels=False, showgrid=False,
+                                showline=False,
+                                range=[_x_range_start, _x_range_end],
+                                row=1, col=1,
+                            )
+                            # Bottom x-axis: year labels, clamped range
+                            fig.update_xaxes(
+                                tickfont=dict(size=11, color="#888888"),
+                                showgrid=False, showline=False,
+                                dtick="M60", tickformat="%Y",
+                                range=[_x_range_start, _x_range_end],
+                                row=2, col=1,
+                            )
+
                             st.plotly_chart(fig, use_container_width=True)
+
+                            # Custom HTML legend (matching sc_dissent_rate.html)
+                            _legend_items = []
+                            for p in _PRES_ORDER_CDR:
+                                if any(c > 0 for c in pres_counts[p]):
+                                    short = _PRES_SHORT_NAMES.get(p, p)
+                                    col = _APPOINTEE_BAR_COLORS.get(p, FALLBACK_COLOR)
+                                    _legend_items.append(
+                                        f'<div style="display:flex;align-items:center;gap:6px">'
+                                        f'<div style="width:10px;height:10px;border-radius:2px;'
+                                        f'flex-shrink:0;background:{col}"></div>'
+                                        f'<span style="color:#555;white-space:nowrap">{short}</span></div>'
+                                    )
+                            _legend_html = (
+                                '<div style="display:flex;flex-wrap:wrap;gap:4px 16px;'
+                                'justify-content:center;padding:0 12px 10px;font-family:'
+                                'DM Sans,sans-serif;font-size:12px">'
+                                + "".join(_legend_items) + '</div>'
+                            )
+                            st.markdown(_legend_html, unsafe_allow_html=True)
+
+                            # Stash legend for index.html export
+                            st.session_state["cdr_legend_html"] = _legend_html
+
+                            # Stash figure for index.html export
+                            st.session_state["cdr_fig"] = fig
+                            st.session_state["cdr_subtitle"] = (
+                                f"Philippine Supreme Court · Rolling {_cdr_win}-year windows "
+                                f"· {_cdr_step}-month steps · {_cdr_combos_str} · {_cdr_year_range}"
+                            )
 
                     # Full table (always shown below chart/step view)
                     if not cdr_filtered.empty:
@@ -1320,6 +1523,37 @@ with tab_network:
                             csv_buf, "court_dissent_rate.csv", "text/csv",
                             key="cdr_dl_csv",
                         )
+
+                        # --- Publish to index.html ---
+                        if "cdr_fig" in st.session_state:
+                            if st.button("Publish as index.html", key="cdr_publish_index", type="secondary"):
+                                _idx_path = Path(__file__).parent / "index.html"
+                                _fig_obj = st.session_state["cdr_fig"]
+                                _sub = st.session_state.get("cdr_subtitle", "")
+                                _title_html = (
+                                    '<div style="font-family:DM Serif Display,Georgia,serif;'
+                                    'font-size:28px;color:#111;text-align:center;margin:24px 0 2px">'
+                                    'Court-wide Dissent Rate Over Time</div>'
+                                    f'<div style="font-family:DM Sans,sans-serif;font-size:13px;'
+                                    f'color:#777;text-align:center;margin-bottom:8px">{_sub}</div>'
+                                )
+                                _full_html = _fig_obj.to_html(
+                                    full_html=True,
+                                    include_plotlyjs="cdn",
+                                    config={"displayModeBar": False},
+                                )
+                                # Inject title + Google Fonts into <body>
+                                _fonts_link = (
+                                    '<link href="https://fonts.googleapis.com/css2?'
+                                    'family=DM+Sans:wght@400;500;700&family=DM+Serif+Display&display=swap" '
+                                    'rel="stylesheet">'
+                                )
+                                _idx_legend = st.session_state.get("cdr_legend_html", "")
+                                _full_html = _full_html.replace("<head>", f"<head>\n{_fonts_link}", 1)
+                                _full_html = _full_html.replace("<body>", f"<body>\n{_title_html}", 1)
+                                _full_html = _full_html.replace("</body>", f"{_idx_legend}\n</body>", 1)
+                                _idx_path.write_text(_full_html, encoding="utf-8")
+                                st.success(f"Published to {_idx_path.name}")
 
             # =================================================================
             # Export All Steps
@@ -1499,11 +1733,13 @@ with tab_network:
                     division_filter=div_filt_tn,
                     dissent_filter=dissent_filter,
                     treat_no_part_as_dissent=treat_no_part,
+                    treat_other_as_dissent=treat_other,
                 )
                 tenures = load_tenures(justices_csv)
                 tn_builder = TemporalNetwork(
                     cases, tenures,
                     justices_csv_path=justices_csv,
+                    treat_other_as_dissent=treat_other,
                 )
                 snapshots = tn_builder.compute_snapshots(tn_window, tn_step_size)
                 st.session_state.temporal_snapshots = snapshots
@@ -1967,6 +2203,7 @@ with tab_network:
                         "window_years": tn_window,
                         "step_months": tn_step_size,
                         "treat_no_part_as_dissent": treat_no_part,
+                        "treat_other_as_dissent": treat_other,
                         "division_filter": division_filter,
                         "dissent_filter": dissent_filter,
                         "edge_threshold": tn_edge_thresh,

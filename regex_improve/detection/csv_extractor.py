@@ -19,6 +19,21 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 
+# Common OCR single-digit confusions (bidirectional).
+# Each digit maps to digits it is commonly misread as.
+_OCR_DIGIT_SWAPS = {
+    "0": ["6", "8", "9"],
+    "1": ["7", "4"],
+    "3": ["8", "5"],
+    "4": ["1"],
+    "5": ["3", "6", "8"],
+    "6": ["0", "5", "8"],
+    "7": ["1"],
+    "8": ["3", "6", "0"],
+    "9": ["0", "3"],
+}
+
+
 # ---------------------------------------------------------------------------
 # Title-casing
 # ---------------------------------------------------------------------------
@@ -69,6 +84,201 @@ def _parse_date_flexible(s: str) -> "_date | None":
         except ValueError:
             continue
     return None
+
+
+def _strip_date_prefix(raw: str) -> tuple[str, str]:
+    """Strip non-date prefix junk from date annotation text.
+    
+    Example: "73978-80. April 26, 1939" → ("April 26, 1939", "73978-80.")
+    
+    Args:
+        raw: raw date annotation text
+        
+    Returns:
+        (cleaned_date, stripped_prefix) where stripped_prefix is empty string
+        if nothing was stripped.
+    """
+    if not raw or not raw.strip():
+        return raw, ""
+    
+    text = raw.strip()
+    
+    # Pattern 1: Look for month names (case-insensitive)
+    month_pattern = r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\b'
+    month_match = re.search(month_pattern, text, re.IGNORECASE)
+    
+    # Pattern 2: Look for date-like patterns at start
+    # MM/DD/YYYY or YYYY-MM-DD at the beginning
+    date_pattern = r'^\s*(\d{1,2}/\d{1,2}/\d{4}|\d{4}-\d{1,2}-\d{1,2})'
+    date_match = re.search(date_pattern, text)
+    
+    # Find the earliest position where a date-like pattern starts
+    positions = []
+    if month_match:
+        positions.append(month_match.start())
+    if date_match:
+        positions.append(date_match.start())
+    
+    if not positions:
+        # No month name or date pattern found, return original
+        return text, ""
+    
+    # Find the earliest valid start position
+    start_pos = min(positions)
+    
+    if start_pos == 0:
+        # Date starts at beginning, nothing to strip
+        return text, ""
+    
+    # Extract prefix and cleaned date
+    stripped_prefix = text[:start_pos].strip()
+    cleaned_date = text[start_pos:].strip()
+    
+    return cleaned_date, stripped_prefix
+
+
+def _compute_volume_median_date(rows: list[dict]) -> "_date | None":
+    """Compute median date for a volume from parseable dates.
+    
+    Args:
+        rows: list of row dicts (as built by extract_cases()) filtered to a
+              single volume.
+    
+    Returns:
+        Median date as datetime.date, or None if fewer than 3 parseable dates.
+    """
+    parsed_dates = []
+    for row in rows:
+        date_str = row.get("date", "")
+        if not date_str:
+            continue
+        parsed = _parse_date_flexible(date_str)
+        if parsed:
+            parsed_dates.append(parsed)
+    
+    if len(parsed_dates) < 3:
+        return None
+    
+    # Compute median: sort and take middle element
+    parsed_dates.sort()
+    median_index = len(parsed_dates) // 2
+    return parsed_dates[median_index]
+
+
+def _try_ocr_date_correction(date_str: str, median: _date, threshold_days: int = 730) -> tuple[str, str | None]:
+    """Try to correct a date string via single-digit OCR substitutions.
+    
+    Args:
+        date_str: the cleaned date string
+        median: volume median date
+        threshold_days: maximum allowed days from median (default 730 ≈ 2 years)
+    
+    Returns:
+        (corrected_date_str, original_date_str) if correction found,
+        (date_str, None) if no correction needed or possible.
+    """
+    if not date_str or not median:
+        return date_str, None
+    
+    # Parse the original date
+    parsed = _parse_date_flexible(date_str)
+    if parsed:
+        # Check if already within threshold
+        days_diff = abs((parsed - median).days)
+        if days_diff <= threshold_days:
+            return date_str, None
+    
+    # Find all digit positions in the date string
+    digit_positions = []
+    for i, ch in enumerate(date_str):
+        if ch.isdigit():
+            digit_positions.append(i)
+    
+    if not digit_positions:
+        return date_str, None
+    
+    best_correction = None
+    best_days_diff = float('inf')
+    
+    # Try single-digit substitutions at each digit position
+    for pos in digit_positions:
+        original_digit = date_str[pos]
+        if original_digit not in _OCR_DIGIT_SWAPS:
+            continue
+        
+        for swap_digit in _OCR_DIGIT_SWAPS[original_digit]:
+            # Build candidate string with single digit swapped
+            candidate = date_str[:pos] + swap_digit + date_str[pos+1:]
+            parsed_candidate = _parse_date_flexible(candidate)
+            
+            if parsed_candidate:
+                days_diff = abs((parsed_candidate - median).days)
+                if days_diff <= threshold_days and days_diff < best_days_diff:
+                    best_correction = candidate
+                    best_days_diff = days_diff
+    
+    if best_correction:
+        return best_correction, date_str
+    
+    return date_str, None
+
+
+def _sanitize_dates(all_rows: list[dict]) -> list[dict]:
+    """Apply per-volume date outlier detection and OCR correction.
+    
+    Args:
+        all_rows: list of row dicts from extract_cases()
+    
+    Returns:
+        Modified rows (in-place) with date corrections and warnings.
+    """
+    from collections import defaultdict
+    
+    # Group rows by volume
+    volume_groups = defaultdict(list)
+    for row in all_rows:
+        volume_groups[row["volume"]].append(row)
+    
+    # Process each volume
+    for volume, rows in volume_groups.items():
+        median = _compute_volume_median_date(rows)
+        if median is None:
+            # Not enough parseable dates in this volume
+            continue
+        
+        for row in rows:
+            date_str = row.get("date", "")
+            if not date_str:
+                continue
+            
+            # Try OCR correction
+            corrected, original = _try_ocr_date_correction(date_str, median)
+            
+            if original is not None:
+                # Correction was made
+                row["date"] = corrected
+                row["date_original"] = original
+                
+                # Extract year change for warning message
+                orig_parsed = _parse_date_flexible(original)
+                corr_parsed = _parse_date_flexible(corrected)
+                if orig_parsed and corr_parsed:
+                    year_change = f"'{orig_parsed.year}' -> '{corr_parsed.year}'"
+                else:
+                    year_change = f"'{original}' -> '{corrected}'"
+                
+                row["date_warning"] = f"OCR corrected: {year_change} (median: {median})"
+            
+            else:
+                # No correction made, check if it's an outlier
+                parsed = _parse_date_flexible(date_str)
+                if parsed:
+                    days_diff = abs((parsed - median).days)
+                    if days_diff > 730:  # 2 years threshold
+                        row["date_warning"] = f"Outlier: date 2+ years from volume median ({median})"
+                        # Keep original date, don't change it
+    
+    return all_rows
 
 
 # ---------------------------------------------------------------------------
@@ -418,24 +628,44 @@ class JusticeMatcher:
             return result
 
         prev_end = 0
-        for m in actions:
+        for idx, m in enumerate(actions):
             names_text = text[prev_end:m.start()]
             verb = m.group().lower()
 
             # Classify by the verb
-            if 'dissent' in verb:
+            if 'separate' in verb or ('opinion' in verb and 'joins' not in verb):
+                if 'dissenting' in verb and 'concurring' not in verb:
+                    category = 'dissenting'
+                else:
+                    category = 'other'
+            elif 'joins' in verb:
+                category = 'other'
+            elif 'dissent' in verb:
                 category = 'dissenting'
+            elif 'inhibit' in verb:
+                category = 'no_part'
             elif 'no' in verb and 'part' in verb:
                 category = 'no_part'
+            elif 'business' in verb:
+                category = 'on_leave'
             elif 'leave' in verb:
                 category = 'on_leave'
-            else:  # concur / concut / conrur / concui
+            else:
                 category = 'concurring'
 
             matched, unmatched = self._extract_justices(names_text,
                                                         case_date=case_date)
             result[category].extend(matched)
             result["unmatched"].extend(unmatched)
+
+            # For "joins...of" verbs, also extract the target justice AFTER the verb
+            if 'joins' in verb or ('join' in verb and 'opinion' in verb):
+                after_end = actions[idx + 1].start() if idx + 1 < len(actions) else len(text)
+                after_text = text[m.end():after_end]
+                after_matched, after_unmatched = self._extract_justices(
+                    after_text, case_date=case_date)
+                result[category].extend(after_matched)
+                result["unmatched"].extend(after_unmatched)
 
             prev_end = m.end()
 
@@ -471,7 +701,13 @@ class JusticeMatcher:
         r'\b(?:'
         r'(?:took|1ook|look)\s+no\s+part|'   # "took no part" + OCR
         r'no\s+part|'                         # bare "no part"
+        r'on\s+official\s+business|'          # "on official business"
         r'on\s+(?:official\s+)?leave|'        # "on leave" / "on official leave"
+        r'(?:see\s+)?separate\s+(?:concurring\s+(?:and\s+dissenting\s+)?)?(?:dissenting\s+)?opinion\w*|'  # "separate concurring opinion"
+        r'(?:see\s+)?separate\s+concurr\w+|'  # "separate concurring"
+        r'(?:see\s+)?separate\s+dissent\w+|'  # "separate dissenting"
+        r'joins?\s+(?:the\s+|an?\s+)?(?:opinion|concurr\w+|dissent\w+)\s+of|'  # "joins the opinion of"
+        r'inhibit\w*|'                        # "inhibit"
         r'concur\w*|'                         # "concur" (OCR variants pre-normalized)
         r'dissent\w*'                         # "dissent"
         r')',
@@ -629,6 +865,8 @@ def extract_cases(filepath: str, matcher: JusticeMatcher) -> list:
 
             dates = by_label.get("date", [])
             date_text = dates[0]["text"] if dates else ""
+            # Strip non-date prefix junk (e.g., "73978-80. April 26, 1939")
+            date_text, _stripped = _strip_date_prefix(date_text)
 
             ponentes = by_label.get("ponente", [])
             ponente_text = ponentes[0]["text"] if ponentes else ""
@@ -667,6 +905,8 @@ def extract_cases(filepath: str, matcher: JusticeMatcher) -> list:
                     "other_votes": "; ".join(parsed["other"]),
                     "unmatched_tokens": "; ".join(parsed["unmatched"]),
                     "confidence": confidence,
+                    "date_original": "",
+                    "date_warning": "",
                 }
             )
 
@@ -681,6 +921,7 @@ CSV_FIELDNAMES = [
     "volume", "case_number", "division", "date", "ponente", "votes_raw",
     "concurring", "dissenting", "no_part", "on_leave",
     "other_votes", "unmatched_tokens", "confidence",
+    "date_original", "date_warning",
 ]
 
 
@@ -770,6 +1011,9 @@ def write_predictions_csv(
 
     all_rows.sort(key=lambda r: (r["volume"] if isinstance(r["volume"], int) else 0))
 
+    # --- Date sanitization pass ---
+    all_rows = _sanitize_dates(all_rows)
+
     # Archive previous CSV
     archived_to = None
     if archive:
@@ -801,5 +1045,15 @@ def write_predictions_csv(
     has_unmatched = sum(1 for r in all_rows if r["unmatched_tokens"])
     print(f"Justice matcher cache: {len(matcher._cache)} unique tokens resolved")
     print(f"Cases with unmatched tokens: {has_unmatched} / {len(all_rows)}")
+
+    # Date correction stats
+    date_corrected = sum(1 for r in all_rows if r.get("date_original"))
+    date_warned = sum(1 for r in all_rows if r.get("date_warning"))
+    if date_corrected or date_warned:
+        print(f"  Date corrections: {date_corrected}  |  Date warnings: {date_warned}")
+    
+    # Add date stats to return dict
+    stats["date_corrected"] = date_corrected
+    stats["date_warned"] = date_warned
 
     return stats
