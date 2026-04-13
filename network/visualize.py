@@ -10,22 +10,22 @@ from pyvis.network import Network
 from .appointed_by import PRESIDENT_COLORS, FALLBACK_COLOR
 
 
-BG_COLOR = "#111111"
+BG_COLOR = "#ffffff"
 
-# 12 bright colors optimized for dark backgrounds
+# 12 colors optimized for white backgrounds (matches dissent chart palette)
 COMMUNITY_COLORS = [
-    "#ff4d6a",  # neon pink-red
-    "#4dff91",  # neon green
-    "#4d8bff",  # neon blue
-    "#ffaa33",  # neon orange
-    "#bb66ff",  # neon purple
-    "#33eeff",  # neon cyan
-    "#ff55cc",  # neon magenta
-    "#ccff44",  # neon lime
-    "#ff88aa",  # neon rose
-    "#44ddaa",  # neon teal
-    "#cc99ff",  # neon lavender
-    "#ffcc44",  # neon gold
+    "#e879a0",  # soft pink
+    "#10b981",  # emerald green
+    "#3b82f6",  # blue
+    "#f59e0b",  # amber
+    "#8b5cf6",  # violet
+    "#22b8cf",  # teal cyan
+    "#ec4899",  # pink
+    "#eab308",  # gold
+    "#6366f1",  # indigo
+    "#14b8a6",  # teal
+    "#f97316",  # orange
+    "#64748b",  # slate
 ]
 
 
@@ -254,7 +254,7 @@ def build_pyvis_html(
         HTML string suitable for st.components.v1.html().
     """
     if G.number_of_nodes() == 0:
-        return f"<p style='color:#ccc;background:{BG_COLOR}'>No nodes in graph.</p>"
+        return f"<p style='color:#666;background:{BG_COLOR}'>No nodes in graph.</p>"
 
     # --- Community detection ---
     communities = nx.community.louvain_communities(G, weight="weight", seed=42)
@@ -299,7 +299,7 @@ def build_pyvis_html(
 
     # --- Build pyvis Network ---
     height_str = f"{graph_height}px"
-    net = Network(height=height_str, width="100%", bgcolor=BG_COLOR, font_color="#ffffff")
+    net = Network(height=height_str, width="100%", bgcolor=BG_COLOR, font_color="#1a1a1a")
 
     if layout_mode == "community":
         opts = {"physics": {"enabled": False}}
@@ -370,16 +370,16 @@ def build_pyvis_html(
             color={
                 "background": _darken_hex(color, 0.15),
                 "border": color,
-                "highlight": {"background": color, "border": "#ffffff"},
-                "hover": {"background": color, "border": "#ffffff"},
+                "highlight": {"background": color, "border": "#1a1a1a"},
+                "hover": {"background": color, "border": "#1a1a1a"},
             },
-            font={"size": font_size, "color": "#ffffff", "face": "arial",
-                  "multi": True, "strokeWidth": 0},
+            font={"size": font_size, "color": "#1a1a1a", "face": "arial",
+                  "multi": True, "strokeWidth": 2, "strokeColor": "#ffffff"},
             borderWidth=2,
             shadow={
                 "enabled": True,
-                "color": f"rgba({r},{g},{b},0.55)",
-                "size": 18, "x": 0, "y": 0,
+                "color": "rgba(0,0,0,0.12)",
+                "size": 10, "x": 2, "y": 2,
             },
         )
         if positions and node in positions:
@@ -409,10 +409,10 @@ def build_pyvis_html(
             r, g, b = _hex_to_rgb(base)
             edge_color = f"rgba({r},{g},{b},{alpha:.2f})"
         else:
-            edge_color = f"rgba(100,100,120,{alpha:.2f})"
+            edge_color = f"rgba(180,180,195,{alpha:.2f})"
 
-        # Glow on strong edges via shadow
-        use_shadow = w / max_weight > 0.4
+        # Disable glow on white background — looks muddy
+        use_shadow = False
         net.add_edge(
             u, v, width=width, title=f"Weight: {w}",
             color={"color": edge_color, "highlight": "#ffffff", "hover": "#dddddd"},
@@ -435,16 +435,18 @@ def build_pyvis_html(
                 f'<span style="display:inline-block;width:12px;height:12px;'
                 f'border-radius:2px;margin-right:6px;vertical-align:middle;'
                 f'background:{color};"></span>'
-                f'<span style="color:#ddd;font-size:11px;font-family:arial;'
+                f'<span style="color:#555;font-size:11px;font-family:DM Sans,arial,sans-serif;'
                 f'vertical-align:middle;">{lbl}</span></div>'
             )
         legend_html = (
+            f'<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">'
             f'<div style="position:fixed;top:10px;right:10px;z-index:1000;'
-            f'background:rgba(17,17,17,0.85);border:1px solid #444;'
-            f'border-radius:6px;padding:10px 14px;max-height:80vh;'
-            f'overflow-y:auto;">'
-            f'<div style="color:#fff;font-weight:bold;margin-bottom:6px;'
-            f'font-size:13px;font-family:arial;">{legend_title}</div>'
+            f'background:rgba(255,255,255,0.95);border:1px solid #e0e0e0;'
+            f'border-radius:16px;padding:12px 16px;max-height:80vh;'
+            f'overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,0.08);'
+            f'font-family:DM Sans,sans-serif;">'
+            f'<div style="color:#1a1a1a;font-weight:700;margin-bottom:8px;'
+            f'font-size:13px;font-family:DM Sans,sans-serif;">{legend_title}</div>'
             f'{legend_items}</div>'
         )
         html = html.replace("</body>", legend_html + "</body>")
@@ -597,9 +599,9 @@ def build_pyvis_html(
                     var colorIdx = parseInt(commIdx) % communityColors.length;
                     var color = communityColors[colorIdx];
                     drawRoundedHull(ctx, hull, padding);
-                    ctx.fillStyle = hexToRgba(color, 0.06);
+                    ctx.fillStyle = hexToRgba(color, 0.08);
                     ctx.fill();
-                    ctx.strokeStyle = hexToRgba(color, 0.4);
+                    ctx.strokeStyle = hexToRgba(color, 0.3);
                     ctx.lineWidth = 2;
                     ctx.setLineDash([10, 5]);
                     ctx.stroke();
@@ -622,6 +624,191 @@ def build_pyvis_html(
         html = html.replace("</body>", hull_script + "</body>")
 
     return html
+
+
+def export_standalone_html(
+    G: nx.Graph,
+    edge_threshold: int = 0,
+    node_size_by: str = "weighted_degree",
+    curved_edges: bool = True,
+    opacity_scaling: bool = True,
+    layout_mode: str = "community",
+    graph_height: int = 700,
+    color_mode: str = "community",
+    appointed_by_map: dict | None = None,
+    show_community_hulls: bool = False,
+    centroid_radius_base: float = 10.0,
+    jitter_scale: float = 0.25,
+    repulsion_k: float = 8.0,
+    title: str = "Philippine Supreme Court \u2014 Justice Voting Network",
+    subtitle: str = "Co-voting patterns among Supreme Court justices",
+    output_path: str | None = None,
+) -> str:
+    """Export a self-contained standalone HTML file of the network graph.
+
+    Generates the pyvis graph and wraps it in a styled HTML shell matching
+    the dissent rate chart design (DM Sans/DM Serif Display, white background,
+    card layout with OG meta tags for LinkedIn sharing).
+
+    Args:
+        G through repulsion_k: Same as build_pyvis_html().
+        title: Page title displayed in the header.
+        subtitle: Subtitle text below the title.
+        output_path: If provided, writes HTML to this file path.
+
+    Returns:
+        Complete HTML string.
+    """
+    raw_html = build_pyvis_html(
+        G,
+        edge_threshold=edge_threshold,
+        node_size_by=node_size_by,
+        curved_edges=curved_edges,
+        opacity_scaling=opacity_scaling,
+        layout_mode=layout_mode,
+        graph_height=graph_height,
+        color_mode=color_mode,
+        appointed_by_map=appointed_by_map,
+        show_community_hulls=show_community_hulls,
+        centroid_radius_base=centroid_radius_base,
+        jitter_scale=jitter_scale,
+        repulsion_k=repulsion_k,
+    )
+
+    # Extract body content from pyvis-generated HTML
+    body_start = raw_html.find("<body>")
+    body_end = raw_html.find("</body>")
+    if body_start == -1 or body_end == -1:
+        body_content = raw_html
+    else:
+        body_content = raw_html[body_start + len("<body>"):body_end]
+
+    # Extract head scripts/styles from pyvis (vis.js CDN links, etc.)
+    head_start = raw_html.find("<head>")
+    head_end = raw_html.find("</head>")
+    pyvis_head = ""
+    if head_start != -1 and head_end != -1:
+        pyvis_head = raw_html[head_start + len("<head>"):head_end]
+
+    # Build metrics summary
+    n_nodes = G.number_of_nodes()
+    n_edges = G.number_of_edges()
+    density = f"{nx.density(G):.4f}" if n_nodes > 1 else "N/A"
+    communities = nx.community.louvain_communities(G, weight="weight", seed=42)
+    n_communities = len(communities)
+
+    standalone = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<meta property="og:type" content="article">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="Interactive network visualization of co-voting patterns among Philippine Supreme Court justices.">
+<meta property="og:image" content="og-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="Interactive network visualization of co-voting patterns among Philippine Supreme Court justices.">
+<meta name="twitter:image" content="og-preview.png">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+{pyvis_head}
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: 'DM Sans', sans-serif;
+    background: #ffffff;
+    color: #1a1a1a;
+    min-height: 100vh;
+  }}
+  .container {{
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 40px 32px 60px;
+  }}
+  .header {{ margin-bottom: 28px; }}
+  .header h1 {{
+    font-family: 'DM Serif Display', serif;
+    font-size: 32px;
+    color: #111;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }}
+  .header .subtitle {{
+    font-size: 14px;
+    color: #777;
+    font-weight: 400;
+  }}
+  .nav-link {{
+    display: inline-block;
+    margin-bottom: 20px;
+    font-size: 13px;
+    color: #3b82f6;
+    text-decoration: none;
+  }}
+  .nav-link:hover {{ text-decoration: underline; }}
+  .graph-wrapper {{
+    position: relative;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }}
+  .graph-wrapper #mynetwork {{
+    border: none !important;
+  }}
+  .metrics-bar {{
+    display: flex;
+    gap: 32px;
+    padding: 16px 24px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+  }}
+  .metric-item {{ display: flex; flex-direction: column; }}
+  .metric-label {{ color: #999; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; }}
+  .metric-value {{ color: #1a1a1a; font-size: 18px; font-weight: 700; }}
+  .footer {{
+    text-align: center;
+    padding: 20px;
+    font-size: 12px;
+    color: #aaa;
+  }}
+  .footer a {{ color: #3b82f6; text-decoration: none; }}
+  .footer a:hover {{ text-decoration: underline; }}
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="index.html" class="nav-link">&larr; Back to overview</a>
+  <div class="header">
+    <h1>{title}</h1>
+    <p class="subtitle">{subtitle}</p>
+  </div>
+  <div class="graph-wrapper">
+    <div class="metrics-bar">
+      <div class="metric-item"><span class="metric-label">Justices</span><span class="metric-value">{n_nodes}</span></div>
+      <div class="metric-item"><span class="metric-label">Connections</span><span class="metric-value">{n_edges}</span></div>
+      <div class="metric-item"><span class="metric-label">Density</span><span class="metric-value">{density}</span></div>
+      <div class="metric-item"><span class="metric-label">Communities</span><span class="metric-value">{n_communities}</span></div>
+    </div>
+    {body_content}
+  </div>
+  <div class="footer">
+    <p>Data: Philippine Supreme Court Reports Annotated &middot;
+    <a href="https://github.com/kikomobile/SC-Decisions">Source on GitHub</a></p>
+  </div>
+</div>
+</body>
+</html>"""
+
+    if output_path:
+        from pathlib import Path
+        Path(output_path).write_text(standalone, encoding="utf-8")
+
+    return standalone
 
 
 def get_community_summary(G: nx.Graph) -> list[dict]:
@@ -655,7 +842,7 @@ def build_matplotlib_figure(
     """Build a static matplotlib figure of the justice network.
 
     Uses same community detection, coloring, and layout as the PyVis version.
-    Dark background with glow effects for depth.
+    White background with subtle depth effects.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -668,7 +855,7 @@ def build_matplotlib_figure(
         fig.set_facecolor(BG_COLOR)
         ax.set_facecolor(BG_COLOR)
         ax.text(0.5, 0.5, "No nodes in graph", ha="center", va="center",
-                fontsize=16, color="#cccccc")
+                fontsize=16, color="#666666")
         ax.axis("off")
         return fig
 
@@ -752,7 +939,7 @@ def build_matplotlib_figure(
         ys = [pos[u][1], pos[v][1]]
         strength = w / max_weight
         if strength > 0.3:
-            ax.plot(xs, ys, color=color, alpha=alpha * 0.3,
+            ax.plot(xs, ys, color=color, alpha=alpha * 0.15,
                     linewidth=width + 3, zorder=0, solid_capstyle="round")
         ax.plot(xs, ys, color=color, alpha=alpha, linewidth=width, zorder=1)
 
@@ -762,7 +949,7 @@ def build_matplotlib_figure(
         color = node_colors[i]
         glow_size = node_sizes[i] * 1.8
         ax.scatter(x, y, s=glow_size, c=color,
-                   alpha=0.15, edgecolors="none", zorder=1)
+                   alpha=0.08, edgecolors="none", zorder=1)
 
     # Nodes
     nx.draw_networkx_nodes(
@@ -792,11 +979,11 @@ def build_matplotlib_figure(
         font_size = max(5, min(9, area / 200))
         ax.text(
             x, y, label, ha="center", va="center",
-            fontsize=font_size, color="white", fontweight="bold", zorder=3,
-            path_effects=[pe.withStroke(linewidth=2, foreground="black")],
+            fontsize=font_size, color="#1a1a1a", fontweight="bold", zorder=3,
+            path_effects=[pe.withStroke(linewidth=2, foreground="white")],
         )
 
-    # Legend (styled for dark background)
+    # Legend (styled for white background)
     legend_handles = []
     for lbl, color in legend_entries[:12]:
         patch = mpatches.Patch(color=color, label=lbl)
@@ -804,8 +991,8 @@ def build_matplotlib_figure(
     if legend_handles:
         legend = ax.legend(
             handles=legend_handles, loc="upper left", fontsize=8,
-            facecolor="#222222", edgecolor="#444444", labelcolor="#dddddd",
-            framealpha=0.9,
+            facecolor="#ffffff", edgecolor="#e0e0e0", labelcolor="#1a1a1a",
+            framealpha=0.95,
         )
         legend.get_frame().set_linewidth(0.8)
 

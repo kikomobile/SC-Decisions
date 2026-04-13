@@ -34,17 +34,17 @@ PRESIDENT_COLORS = {
     "Ramon Magsaysay":        "#f28e2b",  # warm orange
     "Carlos P. Garcia":       "#e15759",  # soft red
     "Diosdado Macapagal":     "#76b7b2",  # teal
-    "Ferdinand Marcos":       "#ff4d6a",  # neon pink
-    "Corazon Aquino":         "#ffcc44",  # gold
-    "Fidel V. Ramos":         "#4dff91",  # neon green
-    "Joseph Estrada":         "#33eeff",  # neon cyan
-    "Gloria Macapagal Arroyo": "#bb66ff", # neon purple
-    "Benigno Aquino III":     "#4d8bff",  # neon blue
-    "Rodrigo Duterte":        "#ff55cc",  # neon magenta
-    "Bongbong Marcos":        "#ccff44",  # neon lime
+    "Ferdinand Marcos":       "#e879a0",  # soft pink
+    "Corazon Aquino":         "#eab308",  # gold
+    "Fidel V. Ramos":         "#10b981",  # emerald green
+    "Joseph Estrada":         "#22b8cf",  # teal cyan
+    "Gloria Macapagal Arroyo": "#8b5cf6", # violet
+    "Benigno Aquino III":     "#3b82f6",  # blue
+    "Rodrigo Duterte":        "#ec4899",  # pink
+    "Bongbong Marcos":        "#f59e0b",  # amber
 }
 
-FALLBACK_COLOR = "#666666"
+FALLBACK_COLOR = "#94a3b8"
 
 # Manual aliases for registry names that don't straightforwardly match CSV names.
 # Format: registry_name (uppercase) -> CSV "Name" substring to look for.

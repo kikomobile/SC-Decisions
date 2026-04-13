@@ -25,7 +25,7 @@ from regex_improve.detection.label_inspector import (
 )
 import networkx as nx
 from network.build_network import NetworkBuilder, export_edge_list, export_adjacency_matrix, export_graphml, extract_display_name
-from network.visualize import build_pyvis_html, get_community_summary, build_matplotlib_figure, export_figure_bytes
+from network.visualize import build_pyvis_html, get_community_summary, build_matplotlib_figure, export_figure_bytes, export_standalone_html
 from network.appointed_by import build_appointed_by_map, PRESIDENT_COLORS, FALLBACK_COLOR
 from network.temporal import (
     load_cases, load_tenures, TemporalAnalyzer,
@@ -728,6 +728,38 @@ with tab_network:
                     file_name="justice_network.svg",
                     mime="image/svg+xml",
                     key="dl_svg",
+                )
+
+            # Standalone HTML export for GitHub Pages
+            st.subheader("GitHub Pages Export")
+            exp1, exp2 = st.columns(2)
+            if exp1.button("Export Standalone HTML", key="export_standalone", type="primary"):
+                with st.spinner("Exporting standalone network.html..."):
+                    standalone = export_standalone_html(
+                        G,
+                        edge_threshold=edge_thresh,
+                        node_size_by=size_by,
+                        curved_edges=curved_edges,
+                        opacity_scaling=opacity_scaling,
+                        layout_mode=layout_mode,
+                        graph_height=graph_height,
+                        color_mode=color_mode,
+                        appointed_by_map=ab_map,
+                        show_community_hulls=show_hulls,
+                        centroid_radius_base=centroid_radius_base,
+                        jitter_scale=jitter_scale,
+                        repulsion_k=repulsion_k,
+                        output_path=str(repo_root / "network.html"),
+                    )
+                    st.session_state["standalone_html"] = standalone
+                st.success("Exported to network.html")
+            if st.session_state.get("standalone_html"):
+                exp2.download_button(
+                    "Download Standalone HTML",
+                    data=st.session_state["standalone_html"],
+                    file_name="network.html",
+                    mime="text/html",
+                    key="dl_standalone_html",
                 )
         elif G is not None:
             st.info("Network has no nodes. Try adjusting the volume range or confidence threshold.")
@@ -1535,10 +1567,10 @@ with tab_network:
                             key="cdr_dl_csv",
                         )
 
-                        # --- Publish to index.html ---
+                        # --- Publish to dissent_rate.html ---
                         if "cdr_fig" in st.session_state:
-                            if st.button("Publish as index.html", key="cdr_publish_index", type="secondary"):
-                                _idx_path = Path(__file__).parent / "index.html"
+                            if st.button("Publish as dissent_rate.html", key="cdr_publish_index", type="secondary"):
+                                _idx_path = Path(__file__).parent / "dissent_rate.html"
                                 _fig_obj = st.session_state["cdr_fig"]
                                 _sub = st.session_state.get("cdr_subtitle", "")
                                 _title_html = (
@@ -1553,15 +1585,30 @@ with tab_network:
                                     include_plotlyjs="cdn",
                                     config={"displayModeBar": False},
                                 )
-                                # Inject title + Google Fonts into <body>
+                                # Inject title, Google Fonts, OG meta, and nav into <body>
                                 _fonts_link = (
                                     '<link href="https://fonts.googleapis.com/css2?'
                                     'family=DM+Sans:wght@400;500;700&family=DM+Serif+Display&display=swap" '
                                     'rel="stylesheet">'
                                 )
+                                _og_tags = (
+                                    '<meta property="og:type" content="article">'
+                                    '<meta property="og:title" content="Philippine Supreme Court — Dissent Rate Over Time">'
+                                    '<meta property="og:description" content="Rolling dissent rate across Philippine Supreme Court En Banc decisions, 1986–2025.">'
+                                    '<meta property="og:image" content="og-preview.png">'
+                                    '<meta property="og:image:width" content="1200">'
+                                    '<meta property="og:image:height" content="630">'
+                                    '<meta name="twitter:card" content="summary_large_image">'
+                                )
+                                _nav_link = (
+                                    '<div style="max-width:1320px;margin:0 auto;padding:12px 32px 0;">'
+                                    '<a href="index.html" style="font-family:DM Sans,sans-serif;'
+                                    'font-size:13px;color:#3b82f6;text-decoration:none;">'
+                                    '&larr; Back to overview</a></div>'
+                                )
                                 _idx_legend = st.session_state.get("cdr_legend_html", "")
-                                _full_html = _full_html.replace("<head>", f"<head>\n{_fonts_link}", 1)
-                                _full_html = _full_html.replace("<body>", f"<body>\n{_title_html}", 1)
+                                _full_html = _full_html.replace("<head>", f"<head>\n{_fonts_link}\n{_og_tags}", 1)
+                                _full_html = _full_html.replace("<body>", f"<body>\n{_nav_link}\n{_title_html}", 1)
                                 _full_html = _full_html.replace("</body>", f"{_idx_legend}\n</body>", 1)
                                 _idx_path.write_text(_full_html, encoding="utf-8")
                                 st.success(f"Published to {_idx_path.name}")
