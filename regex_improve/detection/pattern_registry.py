@@ -5,6 +5,34 @@ from typing import Optional, List, Tuple, Dict
 
 logger = logging.getLogger(__name__)
 
+# Characters that appear as OCR garbage around division headers.
+# Includes: ASCII quotes, smart quotes (U+2018-U+201D), guillemets,
+# underscore, hyphen/minus, en-dash, em-dash, bullet, middle dot,
+# backtick, tilde, asterisk, colons, semicolons, periods, commas.
+_DIVISION_NORMALIZE_STRIP_CHARS = (
+    '"\'`~*_-\u2010\u2011\u2012\u2013\u2014\u2015'
+    '\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f'
+    '\u00ab\u00bb\u2039\u203a'
+    '\u2022\u00b7'
+    '.,:;!?()[]{}|/\\'
+    ' \t'
+)
+
+def normalize_division_line(text: str) -> str:
+    """Strip OCR garbage that frequently wraps division header lines.
+
+    Removes leading and trailing punctuation/whitespace/quote-like chars,
+    then normalizes internal whitespace (so "_ENBANC" collapses to "ENBANC"
+    and the existing re_division pattern — which already tolerates optional
+    whitespace via EN\\s*BAN\\s*C — matches).
+
+    Returns the normalized line. Safe on lines that are already clean.
+    """
+    if not text:
+        return text
+    stripped = text.strip(_DIVISION_NORMALIZE_STRIP_CHARS)
+    return stripped
+
 
 @dataclass
 class Era:
@@ -98,7 +126,9 @@ def _build_baseline_config(era_name: str, **overrides) -> EraConfig:
         r'[A-Za-z\s,.\'\"\-\u2018\u2019\u201c\u201d]+$'
     )
     re_division = re.compile(
-        r'^(EN\s*BAN\s*C|[A-Z]{4,7}\s+DIVIS[A-Z]+N)\s*$',
+        r'^(EN\s*BAN\s*C|'
+        r'(?:[A-Z]{4,10}\s+)?[A-Z]{4,7}\s+DIVIS[A-Z]+N)'
+        r'\s*$',
         re.IGNORECASE
     )
     re_syllabus_header = re.compile(r'^SY[IL]?LABUS\s*$', re.IGNORECASE)
@@ -115,12 +145,16 @@ def _build_baseline_config(era_name: str, **overrides) -> EraConfig:
     # Also make closing bracket more flexible: allow ], ), }, |, ., or even missing
     # Handle nested/multiple opening brackets like ([ or [I (OCR errors)
     re_case_bracket = re.compile(
-        r'^[\[\(\{1I]*(?:[\[\(\{1I])?'  # Opening bracket(s) (optional, tolerates OCR errors)
+        r'^[\s\*\u2022\u00b7]*'         # V515-5: optional leading garbage (whitespace, asterisk, bullet, middle-dot)
+        r'[\[\(\{1I]*(?:[\[\(\{1I])?'  # Opening bracket(s) (optional, tolerates OCR errors)
         r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|'
         r'A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'A\.\s*C\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'B\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'OCA\s*IPI\s*No[\.\s,]*s?[\.\s,]*|'
         r'Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
         r'\s*([\w\-/&\s\.]+?)'  # case number (non-greedy)
-        r'[\.\s,]+'             # separator between case number and date
+        r'[\.\s,:]+'            # V515-5: allow ':' in separator (handles "::" OCR for ".")
         r'(.+)'                 # date text (greedy — captures everything up to closing bracket)
         r'[\]\)\}]'             # Closing bracket (REQUIRED: ], ), or })
         r'.*$',                 # Allow trailing chars after closing bracket (OCR errors)
@@ -130,10 +164,16 @@ def _build_baseline_config(era_name: str, **overrides) -> EraConfig:
     # FIX-2: Fallback pattern for lines where BOTH brackets are corrupted/missing
     # but the line clearly contains a G.R. number and date with month name
     re_case_bracket_no_close = re.compile(
-        r'^[\[\(\{1]?'
-        r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
+        r'^[\s\*\u2022\u00b7]*'    # V515-5: optional leading garbage
+        r'[\[\(\{1]?'
+        r'(?:G\.\s*R\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'A\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'A\.\s*C\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'B\.\s*M\.\s*No[\.\s,]*s?[\.\s,]*|'
+        r'OCA\s*IPI\s*No[\.\s,]*s?[\.\s,]*|'
+        r'Adm\.\s*(?:Matter|Case)\s*No[\.\s,]*s?[\.\s,]*)'
         r'\s*([\w\-/&\s\.]+?)'
-        r'[\.\s,]+'
+        r'[\.\s,:]+'               # V515-5: allow ':' in separator
         r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})',
         re.IGNORECASE
     )

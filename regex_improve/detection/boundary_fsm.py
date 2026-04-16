@@ -52,10 +52,18 @@ class CaseBoundaryDetector:
                                  for era_name in self.fallback_order}
         
     def _match_division_with_fallthrough(self, line_text: str):
-        """Try to match division pattern with era fallthrough."""
+        """Try to match division pattern with era fallthrough.
+
+        Normalizes OCR garbage (leading/trailing quotes, underscores,
+        smart quotes, stray dashes) before matching so lines like
+        '"EN BANC', '_ENBANC', 'FIRST DIVISION -', '‘THIRD DIVISION'
+        are still recognized.
+        """
+        from .pattern_registry import normalize_division_line
+        normalized = normalize_division_line(line_text)
         for era_name in self.fallback_order:
             config = self.fallback_configs[era_name]
-            match = config.re_division.match(line_text)
+            match = config.re_division.match(normalized)
             if match:
                 return match, era_name
         return None, None
@@ -223,6 +231,10 @@ class CaseBoundaryDetector:
         
         # Post-process: fix displaced case endings from jumbled PDF block ordering
         boundaries = self.fix_displaced_endings(boundaries)
+        
+        # V515-4: Recover stranded case brackets missed by the main FSM
+        boundaries = self.recover_stranded_brackets(boundaries)
+        
         return boundaries
 
     def fix_displaced_endings(self, boundaries: list[CaseBoundary]) -> list[CaseBoundary]:
@@ -312,6 +324,136 @@ class CaseBoundaryDetector:
                 curr.end_line = displaced_end_line
 
         return boundaries
+
+    def recover_stranded_brackets(
+        self, boundaries: list[CaseBoundary]
+    ) -> list[CaseBoundary]:
+        """Find case brackets not inside any detected boundary and recover them.
+
+        For each [G.R./A.C./A.M./B.M./Adm./OCA IPI No. ... date] bracket in
+        the volume that is NOT between any existing boundary's start_line and
+        end_line, walk backward up to 8 non-noise lines searching for any
+        line containing "DIVIS" or "BANC" (case-insensitive substring). If
+        found, emit a new CaseBoundary with start_line at that line and the
+        bracket contents extracted normally.
+
+        Returns the boundaries list with new boundaries inserted in
+        start_line order. If no stranded brackets are found, returns the
+        input unchanged.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Build set of line numbers already covered by any boundary
+        covered = set()
+        for b in boundaries:
+            for ln in range(b.start_line, b.end_line + 1):
+                covered.add(ln)
+
+        total_lines = self.loader.total_lines
+        new_boundaries: list[CaseBoundary] = []
+
+        for line_idx in range(1, total_lines + 1):
+            if line_idx in covered:
+                continue
+            if self.preprocessor.is_noise(line_idx):
+                continue
+
+            line_text = self.loader.get_line_text(line_idx)
+            if not line_text:
+                continue
+
+            # Check if this line is a case bracket (with fallthrough)
+            bracket_match, bracket_era, bracket_type = self._match_bracket_with_fallthrough(line_text)
+            if not bracket_match:
+                continue
+
+            # Walk backward up to 8 non-noise lines for a division-ish header
+            division_line = None
+            division_text = None
+            for back in range(1, 9):
+                prev_idx = line_idx - back
+                if prev_idx < 1:
+                    break
+                if self.preprocessor.is_noise(prev_idx):
+                    continue
+                prev_text = self.loader.get_line_text(prev_idx)
+                if not prev_text or not prev_text.strip():
+                    continue
+                # Heuristic: contains DIVIS or BANC substring (case-insensitive)
+                upper = prev_text.upper()
+                if "DIVIS" in upper or "BANC" in upper:
+                    division_line = prev_idx
+                    division_text = prev_text.strip()
+                    break
+                # Stop if we hit a clearly-unrelated line (e.g., a sentence
+                # ending with a period that's long prose text)
+                if len(prev_text.strip()) > 80:
+                    break
+
+            if division_line is None:
+                # No division header found — skip this bracket
+                logger.debug(
+                    f"recover_stranded_brackets: bracket at line {line_idx} "
+                    f"has no nearby division header, skipping"
+                )
+                continue
+
+            # Build a CaseBoundary for the stranded pair
+            case_num_text_raw = bracket_match.group(1).strip()
+            date_text_raw = bracket_match.group(2).strip()
+            full_bracket = line_text.strip()
+            case_num_with_prefix = self._extract_case_number_from_bracket(
+                full_bracket, date_text_raw
+            )
+            case_number = CaseNumber(
+                text=case_num_with_prefix,
+                full_bracket_text=full_bracket,
+                group=0,
+                start_char=self._find_case_number_start_char(line_idx, case_num_with_prefix),
+                end_char=self._find_case_number_end_char(line_idx, case_num_with_prefix),
+            )
+            date_start_char, date_end_char = self._find_date_in_bracket(
+                line_idx, full_bracket, date_text_raw
+            )
+            # Normalize the division text (removes OCR garbage for the
+            # stored division_text field).
+            from .pattern_registry import normalize_division_line
+            normalized_division = normalize_division_line(division_text).upper()
+            new_boundary = CaseBoundary(
+                start_line=division_line,
+                end_line=0,  # set after merge
+                division_text=normalized_division or division_text.upper(),
+                case_numbers=[case_number],
+                date_text=date_text_raw,
+                date_start_char=date_start_char,
+                date_end_char=date_end_char,
+            )
+            new_boundaries.append(new_boundary)
+            logger.info(
+                f"V515-4: Recovered stranded case at line {division_line} "
+                f"(division='{normalized_division}', bracket='{case_num_with_prefix}')"
+            )
+
+            # Mark these lines as covered so we don't double-recover a
+            # consolidated second bracket as a separate case.
+            for ln in range(division_line, line_idx + 10):
+                covered.add(ln)
+
+        if not new_boundaries:
+            return boundaries
+
+        # Merge new boundaries into the list sorted by start_line
+        merged = sorted(boundaries + new_boundaries, key=lambda b: b.start_line)
+
+        # Recompute end_line for all boundaries based on the new ordering
+        for i in range(len(merged)):
+            if i < len(merged) - 1:
+                merged[i].end_line = merged[i + 1].start_line - 1
+            else:
+                merged[i].end_line = total_lines
+
+        return merged
 
     def _extract_case_number_from_bracket(self, bracket_line: str, date_text: str) -> str:
         """Extract the full case number text (with prefix) from bracket line."""

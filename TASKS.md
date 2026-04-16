@@ -991,6 +991,13 @@ and edge styling as the PyVis version. Matplotlib natively exports PNG and SVG.
 - [x] **DATE-2**: Volume-contextual OCR date correction — `_sanitize_dates()` computes per-volume median date, detects outliers >730 days from median, applies single-digit `_OCR_DIGIT_SWAPS` to auto-correct. Adds `date_original` + `date_warning` CSV columns. 12 corrections, 2 unfixed outliers, 0 false positives across 36,993 cases.
 - [x] **DATE-3**: Verified all 5 original targets corrected + 7 bonus OCR catches (4987→1987, March 36→30, 1994→1991, 1993→1995 x3, 2063→2003). 2 unfixed outliers flagged (Vol 833 genuine mismatch, Vol 898 unparseable).
 
+### Volume 515 Missed Cases (V515-1 thru V515-5)
+- [x] **V515-1**: `normalize_division_line()` helper in `pattern_registry.py` strips OCR garbage (smart quotes, `_`, `-`, `"`, `'`) at leading/trailing edges. Wired into `boundary_fsm._match_division_with_fallthrough`, `preprocess._classify_noise`, and 4 `section_extractor.py` call sites.
+- [x] **V515-2**: `re_division` widened to allow optional leading uppercase word (e.g., `SPECIAL THIRD DIVISION`).
+- [x] **V515-3**: `re_case_bracket` + `re_case_bracket_no_close` extended to match `A.C. No.`, `B.M. No.`, `OCA IPI No.` prefixes. Volume_226 regression check still finds 72 boundaries.
+- [x] **V515-4**: `recover_stranded_brackets()` post-pass in `boundary_fsm.py` recovers case brackets unclaimed by any boundary using loose "DIVIS"/"BANC" substring match within 8 non-noise lines backward. Volume_515 detection: 47 → 54 cases (7 of 8 target cases recovered).
+- [x] **V515-5**: `re_case_bracket` + `re_case_bracket_no_close` widened with leading-garbage class `[\s\*\u2022\u00b7]*` and separator `:` (handles `::` OCR for `.`). Recovers case_49 at Volume_515 page 325 (`* [A.M. No. 01-34-CA-J::January 23, 2006}`). Volume_515 detection: 54 → 55 cases; Volume_226 regression still at 72 boundaries.
+
 ---
 
 ## NOTE: Future — Batch scoring support

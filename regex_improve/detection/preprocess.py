@@ -56,8 +56,11 @@ class VolumePreprocessor:
         
         # Pass 2: contextual noise (short titles)
         for i, line in enumerate(lines):
-            # Skip division headers and syllabus headers - they're not noise even if they match RE_SHORT_TITLE
-            if self.config.re_division.match(line) or self.config.re_syllabus_header.match(line):
+            # Skip division headers and syllabus headers - they're not noise even if they match RE_SHORT_TITLE.
+            # Normalize line first so OCR-wrapped division headers ('"EN BANC', '_ENBANC', etc.) are recognized.
+            from .pattern_registry import normalize_division_line
+            if (self.config.re_division.match(normalize_division_line(line))
+                    or self.config.re_syllabus_header.match(line)):
                 continue
                 
             if self.config.re_short_title.match(line):

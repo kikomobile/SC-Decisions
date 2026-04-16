@@ -393,7 +393,9 @@ class SectionExtractor:
                         break
                     
                     # Stop condition (c): RE_DIVISION or RE_CASE_BRACKET (next case)
-                    if self.config.re_division.match(end_text) or self.config.re_case_bracket.match(end_text):
+                    from detection.pattern_registry import normalize_division_line
+                    if (self.config.re_division.match(normalize_division_line(end_text))
+                            or self.config.re_case_bracket.match(end_text)):
                         break
                     
                     # Check for blank line
@@ -688,7 +690,9 @@ class SectionExtractor:
                                 break
                             
                             # 2. RE_DIVISION or RE_CASE_BRACKET (next case start)
-                            if self.config.re_division.match(text) or self.config.re_case_bracket.match(text):
+                            from detection.pattern_registry import normalize_division_line
+                            if (self.config.re_division.match(normalize_division_line(text))
+                                    or self.config.re_case_bracket.match(text)):
                                 break
                             
                             # 3. Two consecutive blank lines (double blank = section break)
@@ -839,7 +843,8 @@ class SectionExtractor:
                         opinion_starts = []
                         for scan_idx in range(opinion_scan_start, len(lines)):
                             scan_line_num, scan_text = lines[scan_idx]
-                            if self.config.re_division.match(scan_text):
+                            from detection.pattern_registry import normalize_division_line
+                            if self.config.re_division.match(normalize_division_line(scan_text)):
                                 break
                             if self.config.re_separate_opinion.match(scan_text) or RE_SEP_OPINION_HEADER.match(scan_text):
                                 opinion_starts.append(scan_idx)
@@ -882,7 +887,8 @@ class SectionExtractor:
                                 last_nonblank_text = op_start_text
                                 for search_idx in range(op_start_idx + 1, end_search_limit):
                                     s_line, s_text = lines[search_idx]
-                                    if self.config.re_division.match(s_text):
+                                    from detection.pattern_registry import normalize_division_line
+                                    if self.config.re_division.match(normalize_division_line(s_text)):
                                         break
                                     if s_text.strip():
                                         last_nonblank_line = s_line
@@ -959,7 +965,9 @@ class SectionExtractor:
             if not text.strip():
                 continue
             # Skip embedded division headers and brackets from next case
-            if self.config.re_division.match(text) or self.config.re_case_bracket.match(text):
+            from detection.pattern_registry import normalize_division_line
+            if (self.config.re_division.match(normalize_division_line(text))
+                    or self.config.re_case_bracket.match(text)):
                 continue
             if _line_has_justice_surname(text, justices):
                 votes_lines.append((line_num, text))
