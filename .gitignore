@@ -6,6 +6,8 @@ downloads/
 *.pdf
 *.txt
 !requirements.txt
+*.docx
+~$*.docx
 
 # Database
 *.db
