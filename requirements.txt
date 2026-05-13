@@ -37,3 +37,5 @@ pytest>=7.0.0
 
 # Pipeline control panel UI
 streamlit>=1.29.0
+plotly>=5.0
+matplotlib>=3.7

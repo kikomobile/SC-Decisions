@@ -258,9 +258,14 @@ def run_all_csv_validations(before_csv: str, after_csv: str) -> dict:
 
 
 def open_folder(path: str) -> None:
-    """Open a folder in Windows Explorer."""
+    """Open a folder in the OS file browser."""
     norm = os.path.normpath(path)
-    subprocess.Popen(["explorer", norm])
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", norm])
+    elif sys.platform.startswith("win"):
+        subprocess.Popen(["explorer", norm])
+    else:
+        subprocess.Popen(["xdg-open", norm])
 
 
 def parse_summary_metrics(log_text: str) -> dict:
